@@ -61,6 +61,19 @@ class MatchPrediction(Base):
 
     match = relationship("Match", back_populates="prections")
 
+class PredictionEvaluation(Base):
+    __tablename__ = "prediction_evaluations"
+
+    evaluation_id = Column(Integer, primary_key=True, autoincrement=True)
+    match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
+    prediction_id = Column(Integer, ForeignKey("match_predictions_history.prediction_id"), nullable=False)
+
+    brier_score = Column(Numeric(6, 4), nullable=False)
+    log_loss = Column(Numeric(6, 4), nullable=False)
+
+    outcome_correct = Column(Boolean, nullable=False)
+    evaluated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
 
 def init_db():
     """

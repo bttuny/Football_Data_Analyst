@@ -1,77 +1,143 @@
-import pandas as pd
 from datetime import datetime
-from src.database import init_db, SessionLocal, League, Match, MatchPrediction, save_prediction
+import pandas as pd
+from src.database import (
+    init_db, SessionLocal, League, Match, 
+    MatchPrediction, PredictionEvaluation, save_prediction
+)
 from src.data_fetcher import FootballDataFetcher
 from src.model import PremierLeaguePoissonModel
+from src.evaluation import calculate_brier_score, calculate_log_loss
 
 def run_pipeline():
-    print("=== PL xG Prediction Pipeline ===")
-
+    print("=== PL xG PREDICTOR & EVALUATION PIPELINE ===")
+    
     init_db()
     db = SessionLocal()
-    pl_league = db.query(League).filter(League.code == "ENG-PL").first()
-    if not pl_league:
-        pl_league = League(name="Premier League", country="England", code="ENG-PL")
-        db.add(pl_league)
-        db.commit()
-        db.refresh(pl_league)
 
-    print("Fetching Premier League match data...")
+    # Confirm that the Premier League exists in the database
+    pl_league = db.query(League).filter(League.code == 'ENG-PL').first()
+
     fetcher = FootballDataFetcher()
-    df_finished, upcoming_matches = fetcher.fetch_premier_league_matches(season=2025)
+    
+    # -------------------------------------------------------------
+    # PHASE 1: Evaluate predictions for finished matches
+    # -------------------------------------------------------------
+    print("\n1. Tarkistetaan päättyneet ottelut ja evaluoidaan ennusteet...")
+    
+    # Search for finished matches in the current season (2026)
     df_current_finished, upcoming_matches = fetcher.fetch_premier_league_matches(season=2026)
+    
+    # Search for matches in the database that have predictions but are not yet finished
+    locked_matches = db.query(Match).filter(Match.status == 'LOCKED').all()
+    
+    evaluations_count = 0
+    for match in locked_matches:
+        # Search for the corresponding match in the fetched finished matches
+        match_data = df_current_finished[
+            (df_current_finished['home_team'] == match.home_team) & 
+            (df_current_finished['away_team'] == match.away_team)
+        ]
+        
+        if not match_data.empty:
+            row = match_data.iloc[0]
+            actual_home = int(row['home_goals'])
+            actual_away = int(row['away_goals'])
+            
+            # Update the match with actual results and mark it as finished
+            match.actual_home_goals = actual_home
+            match.actual_away_goals = actual_away
+            match.status = 'FINISHED'
+            
+            # Get the latest prediction for this match
+            pred = db.query(MatchPrediction).filter(
+                MatchPrediction.match_id == match.match_id
+            ).order_by(MatchPrediction.created_at.desc()).first()
+            
+            if pred:
+                # Calculate evaluation metrics
+                brier = calculate_brier_score(
+                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                    actual_home, actual_away
+                )
+                loss = calculate_log_loss(
+                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                    actual_home, actual_away
+                )
+                
+                # Define predicted and actual outcomes for correctness check
+                pred_outcome = 'H' if pred.prob_home_win > max(pred.prob_draw, pred.prob_away_win) else ('D' if pred.prob_draw > pred.prob_away_win else 'A')
+                actual_outcome = 'H' if actual_home > actual_away else ('D' if actual_home == actual_away else 'A')
+                is_correct = (pred_outcome == actual_outcome)
+                
+                # Save evaluation results to the database
+                eval_obj = PredictionEvaluation(
+                    match_id=match.match_id,
+                    prediction_id=pred.prediction_id,
+                    brier_score=brier,
+                    log_loss=loss,
+                    outcome_correct=is_correct
+                )
+                db.add(eval_obj)
+                evaluations_count += 1
+                print(f"   [EVAL] {match.home_team} {actual_home}-{actual_away} {match.away_team} | Brier: {brier} | Correct: {is_correct}")
 
+    db.commit()
+    print(f"   -> Evaluointi valmis. Päivitetty {evaluations_count} uutta tulosta.")
+
+    # -------------------------------------------------------------
+    # VAIHE 2: Teach the Poisson xG model using past and current season data
+    # -------------------------------------------------------------
+    print("\n2. Koulutetaan Poisson xG -malli...")
+    
+    # Search for past season matches (2025) to use as training data
+    df_past, _ = fetcher.fetch_premier_league_matches(season=2025)
+    
+    # Combine past season data with current finished matches for training
     if not df_current_finished.empty:
-        df_finished = pd.concat([df_finished, df_current_finished], ignore_index=True)
+        df_train = pd.concat([df_past, df_current_finished], ignore_index=True)
+    else:
+        df_train = df_past
 
-    print(f"Fetched {len(df_finished)} finished matches and {len(upcoming_matches)} upcoming matches.")
-
-    if df_finished.empty:
-        print("No finished matches found. Exiting.")
-        db.close()
-        return
-
-    print("Fitting the Poisson model...")
     model = PremierLeaguePoissonModel()
-    model.fit(df_finished)
-    print(f"Model fitted. League averages - Home: {model.league_avg_home_goals:.2f}, Away: {model.league_avg_away_goals:.2f}")
+    model.fit(df_train)
+    print(f"   - Opetusmateriaali: {len(df_train)} ottelua. Kotikeskiarvo: {model.league_avg_home_goals:.2f}")
 
-    print("Predicting upcoming matches...")
+    # -------------------------------------------------------------
+    # VAIHE 3: Predict upcoming matches and save predictions to the database
+    # -------------------------------------------------------------
+    print("\n3. Lasketaan ennusteet tuleville otteluille...")
     sample_upcoming = upcoming_matches[:5]
 
-    for match in sample_upcoming:
-        home_team = match['home_team']
-        away_team = match['away_team']
+    for match_data in sample_upcoming:
+        home_team = match_data["home_team"]
+        away_team = match_data["away_team"]
 
         match_obj = db.query(Match).filter(
-           Match.home_team == home_team,
-           Match.away_team == away_team,
-           Match.league_id == pl_league.league_id,
+            Match.home_team == home_team,
+            Match.away_team == away_team,
+            Match.league_id == pl_league.league_id
         ).first()
 
         if not match_obj:
             match_obj = Match(
                 league_id=pl_league.league_id,
-                season = "2025/2026",
+                season="2026/2027",
                 home_team=home_team,
                 away_team=away_team,
-                match_datetime=datetime.fromisoformat(match['datetime'].replace('Z', '+00:00')),
+                match_datetime=datetime.fromisoformat(match_data["datetime"].replace("Z", "+00:00")),
                 status="SCHEDULED"
             )
             db.add(match_obj)
             db.commit()
             db.refresh(match_obj)
 
-        pred = model.predict_match(home_team, away_team)
-        save_prediction(pred, match_obj.match_id)
+        if match_obj.status == "SCHEDULED":
+            pred = model.predict_match(home_team, away_team)
+            save_prediction(pred, match_obj.match_id)
+            print(f"   -> Ennustettu & Lukittu: {home_team} vs {away_team} (xG: {pred['expected_goals_home']}-{pred['expected_goals_away']})")
 
-        print(f"   -> Ennustettu: {home_team} vs {away_team}")
-        print(f"      xG: {pred['expected_goals_home']} - {pred['expected_goals_away']} | "
-              f"1X2: {pred['prob_home_win']*100:.1f}% - {pred['prob_draw']*100:.1f}% - {pred['prob_away_win']*100:.1f}%")
-
-        db.close()
-        print("Pipeline completed successfully.")
+    db.close()
+    print("\n=== PIPELINE VALMIS ===")
 
 if __name__ == "__main__":
     run_pipeline()
-
