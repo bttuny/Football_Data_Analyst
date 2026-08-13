@@ -4,6 +4,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from src.database import SessionLocal, Match, MatchPrediction, PredictionEvaluation
+from src.odds_fetcher import OddsFetcher
+from src.value_calculator import calculate_value_bets
 
 app = FastAPI(
     title="Premier League xG & Prediction Engine API",
@@ -27,31 +29,47 @@ def get_upcoming_predictions(db: Session = Depends(get_db)):
     Get predictions for upcoming matches.
     Returns a list of upcoming matches with their predicted probabilities.
     """
-    upcoming_matches = db.query(Match).filter(Match.status == 'LOCKED').all()
+    matches = db.query(Match).filter(Match.status == 'LOCKED').all()
+    
+    odds_fetcher = OddsFetcher()
+    current_odds = odds_fetcher.fetch_current_odds()
+    
     results = []
 
-    for m in upcoming_matches:
+    for m in matches:
         latest_pred = db.query(MatchPrediction).filter(
             MatchPrediction.match_id == m.match_id
-            ).order_by(MatchPrediction.created_at.desc()).first()
+        ).order_by(MatchPrediction.created_at.desc()).first()
 
         if latest_pred:
+            match_key = f"{m.home_team} vs {m.away_team}"
+            match_odds = current_odds.get(match_key, {"H": 0.0, "D": 0.0, "A": 0.0})
+
+            prob_h = float(latest_pred.prob_home_win)
+            prob_d = float(latest_pred.prob_draw)
+            prob_a = float(latest_pred.prob_away_win)
+
+            value_analysis = calculate_value_bets(
+                prob_h, prob_d, prob_a,
+                match_odds["H"], match_odds["D"], match_odds["A"]
+            )
+
             results.append({
                 "match_id": m.match_id,
                 "home_team": m.home_team,
                 "away_team": m.away_team,
-                "match_datetime": m.match_datetime.isoformat(),
                 "expected_goals": {
                     "home": float(latest_pred.predicted_home_xg),
                     "away": float(latest_pred.predicted_away_xg)
                 },
                 "probabilities": {
-                    "home_win": float(latest_pred.prob_home_win),
-                    "draw": float(latest_pred.prob_draw),
-                    "away_win": float(latest_pred.prob_away_win)
-                }
+                    "home_win": prob_h,
+                    "draw": prob_d,
+                    "away_win": prob_a
+                },
+                "odds": match_odds,
+                "value_analysis": value_analysis
             })
-
     return results
 
 @app.get("/api/evaluations/summary", summary="Get models performance metrics")
