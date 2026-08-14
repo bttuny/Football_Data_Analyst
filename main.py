@@ -148,6 +148,10 @@ def run_pipeline():
                 db.add(match_obj)
                 db.commit()
                 db.refresh(match_obj)
+            else:
+                if m_data.get("referee") and match_obj.referee != m_data.get("referee"):
+                    match_obj.referee = m_data.get("referee")
+                    db.commit()
 
             if match_obj.status in ["SCHEDULED", "LOCKED"]:
                 pred = model.predict_match(h, a)

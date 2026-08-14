@@ -1,57 +1,86 @@
 # src/quant/cards_model.py
-import pandas as pd
 from scipy.stats import poisson
+import numpy as np
+import pandas as pd
 
 class PremierLeagueCardsModel:
     def __init__(self):
         self.league_avg_cards = 4.10
-        self.referee_multipliers = {}
-        self.team_home_intensity = {}
-        self.team_away_intensity = {}
-        self.league_red_card_rate = 0.12
+        self.referee_factors = {}
+        self.team_card_factors = {}
 
-    def fit(self, df_cards: pd.DataFrame):
-        if df_cards.empty:
+    def fit(self, historical_cards_df: pd.DataFrame):
+        if historical_cards_df.empty:
             return
 
-        self.league_avg_cards = float(df_cards['total_cards'].mean())
-        avg_h = float(df_cards['home_cards'].mean())
-        avg_a = float(df_cards['away_cards'].mean())
-        self.league_red_card_rate = float(df_cards['red_cards'].mean())
+        total_matches = len(historical_cards_df)
+        total_cards = historical_cards_df['total_cards'].sum()
+        if total_matches > 0:
+            self.league_avg_cards = float(total_cards / total_matches)
 
-        # Tuomarien ankaruuskertoimet oikeasta datasta
-        ref_counts = df_cards['Referee'].value_counts()
-        for ref, count in ref_counts.items():
-            raw_avg = df_cards[df_cards['Referee'] == ref]['total_cards'].mean()
-            # Bayes-kutistus: Jos tuomarilla on vähän pelejä, arvo vedetään kohti keskiarvoa 1.0
-            weight = min(1.0, count / 8.0)
-            self.referee_multipliers[ref.lower()] = float(weight * (raw_avg / self.league_avg_cards) + (1.0 - weight))
+        # Tuomarikertoimet Bayes-kutistuksella
+        ref_stats = historical_cards_df.groupby('Referee').agg(
+            matches=('total_cards', 'count'),
+            cards=('total_cards', 'mean')
+        ).reset_index()
 
-        # Joukkueiden korttitaipumus oikeasta datasta
-        teams = set(df_cards['HomeTeam']).union(set(df_cards['AwayTeam']))
-        for team in teams:
-            h_games = df_cards[df_cards['HomeTeam'] == team]
-            a_games = df_cards[df_cards['AwayTeam'] == team]
-            
-            self.team_home_intensity[team.lower()] = float(h_games['home_cards'].mean() / avg_h) if len(h_games) > 0 else 1.0
-            self.team_away_intensity[team.lower()] = float(a_games['away_cards'].mean() / avg_a) if len(a_games) > 0 else 1.0
+        k = 10.0  # Kutistusparametri
+        for _, row in ref_stats.iterrows():
+            ref = row['Referee']
+            n = row['matches']
+            mean_c = row['cards']
+            shrunk_factor = (n * (mean_c / self.league_avg_cards) + k * 1.0) / (n + k)
+            self.referee_factors[ref.lower()] = float(shrunk_factor)
+
+        # Joukkuekohtaiset kertoimet
+        home_cards = historical_cards_df.groupby('HomeTeam')['home_cards'].mean()
+        away_cards = historical_cards_df.groupby('AwayTeam')['away_cards'].mean()
+        all_teams = set(home_cards.index).union(set(away_cards.index))
+
+        for t in all_teams:
+            h_c = home_cards.get(t, self.league_avg_cards / 2)
+            a_c = away_cards.get(t, self.league_avg_cards / 2)
+            team_avg = (h_c + a_c)
+            self.team_card_factors[t.lower()] = float(team_avg / self.league_avg_cards)
 
     def predict_cards(self, home_team: str, away_team: str, referee: str = None) -> dict:
-        ref_key = referee.lower() if referee else None
-        ref_factor = self.referee_multipliers.get(ref_key, 1.0)
-        
-        # Haetaan joukkueiden kertoimet joustavalla nimenetsinnällä
-        h_factor = next((v for k, v in self.team_home_intensity.items() if k in home_team.lower() or home_team.lower() in k), 1.0)
-        a_factor = next((v for k, v in self.team_away_intensity.items() if k in away_team.lower() or away_team.lower() in k), 1.0)
+        h_factor = self.team_card_factors.get(home_team.lower(), 1.0)
+        a_factor = self.team_card_factors.get(away_team.lower(), 1.0)
+        teams_factor = (h_factor + a_factor) / 2.0
 
-        exp_cards = max(1.5, min(8.0, self.league_avg_cards * ((h_factor + a_factor) / 2.0) * ref_factor))
-        prob_over_3_5 = 1.0 - poisson.cdf(3, exp_cards)
-        prob_red = 1.0 - poisson.pmf(0, self.league_red_card_rate * ref_factor)
+        ref_factor = 1.0
+        ref_display = "Liigan keskiarvo"
+        if referee:
+            ref_clean = referee.strip().lower()
+            if ref_clean in self.referee_factors:
+                ref_factor = self.referee_factors[ref_clean]
+                ref_display = f"{referee} ({ref_factor:.2f}x)"
+            else:
+                ref_display = referee
+
+        lambda_cards = self.league_avg_cards * teams_factor * ref_factor
+        lambda_cards = max(1.5, min(8.0, lambda_cards))
+
+        # Lasketaan todennäköisyydet ja reilut kertoimet linjoille 2.5, 3.5, 4.5, 5.5
+        lines = {}
+        for line in [2.5, 3.5, 4.5, 5.5]:
+            k = int(line)  # 2, 3, 4, 5
+            prob_over = 1.0 - float(poisson.cdf(k, lambda_cards))
+            fair_odds = round(1.0 / prob_over, 2) if prob_over > 0.01 else 99.0
+            
+            # Käytetään selkeitä avaimia: over_2_5, over_3_5, over_4_5, over_5_5
+            key = f"over_{str(line).replace('.', '_')}"
+            lines[key] = {
+                "line": line,
+                "prob": round(prob_over, 3),
+                "prob_pct": int(round(prob_over * 100)),
+                "fair_odds": fair_odds
+            }
 
         return {
-            "referee": referee if referee else "Liigan keskiarvo",
-            "expected_total_cards": round(float(exp_cards), 2),
-            "prob_over_3_5": round(float(prob_over_3_5), 4),
-            "prob_red_card": round(float(prob_red), 4),
-            "fair_odds_over_3_5": round(1.0 / prob_over_3_5, 2) if prob_over_3_5 > 0 else 0
+            "expected_total_cards": round(lambda_cards, 2),
+            "referee": ref_display,
+            "lines": lines,
+            "prob_over_3_5": lines["over_3_5"]["prob"],
+            "fair_odds_over_3_5": lines["over_3_5"]["fair_odds"]
         }

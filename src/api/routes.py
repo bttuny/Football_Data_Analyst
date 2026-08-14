@@ -170,26 +170,28 @@ def place_card_bet(
     match_id: int = Form(...),
     match_name: str = Form(...),
     league_code: str = Form("PL"),
+    selected_line: float = Form(3.5),
     user_odds: float = Form(...),
-    prob_over_3_5: float = Form(...),
-    db: Session = Depends(get_db),
+    line_prob: float = Form(...),
+    db: Session = Depends(get_db)
 ):
-    if user_odds > 1.0 and prob_over_3_5 > 0:
-        ev = (prob_over_3_5 * user_odds) - 1.0
+    if user_odds > 1.0 and line_prob > 0:
+        ev = (line_prob * user_odds) - 1.0
         b = user_odds - 1.0
-        kelly = (b * prob_over_3_5 - (1.0 - prob_over_3_5)) / b if b > 0 else 0
+        kelly = ((b * line_prob) - (1.0 - line_prob)) / b if b > 0 else 0
         stake_pct = min(2.0, round(max(0.0, kelly * 0.25) * 100, 1))
 
         if ev > 0.02 and stake_pct >= 0.1:
+            market_type = f"CARDS_OVER_{str(selected_line).replace('.', '_')}"
             BankrollService.place_value_bet(
                 db=db,
                 match_id=match_id,
                 match_name=match_name,
-                outcome="Yli 3.5",
+                outcome=f"Yli {selected_line}",
                 odds=user_odds,
                 ev_pct=round(ev * 100, 1),
                 stake_pct=stake_pct,
                 league_code=league_code,
-                market_type="CARDS_OVER_3_5",
+                market_type=market_type
             )
     return RedirectResponse(url="/bankroll", status_code=303)
