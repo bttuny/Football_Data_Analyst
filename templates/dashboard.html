@@ -3,16 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PL Value Betting Engine</title>
+    <title>PL Value Betting & Cards Engine</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
         h1 { color: #38bdf8; text-align: center; margin-bottom: 2rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.5rem; }
         .card { background: #1e293b; border-radius: 12px; padding: 1.5rem; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2); }
-        .teams { font-size: 1.1rem; font-weight: bold; margin-bottom: 0.5rem; }
-        .xg { color: #38bdf8; font-size: 0.95rem; font-weight: 600; margin-bottom: 1.2rem; }
+        .teams { font-size: 1.15rem; font-weight: bold; margin-bottom: 0.4rem; }
+        .xg { color: #38bdf8; font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; }
         
-        .probs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; text-align: center; background: #0f172a; padding: 0.75rem; border-radius: 8px; }
+        .section-title { font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; font-weight: 700; margin-bottom: 0.4rem; letter-spacing: 0.5px; }
+        .probs-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; text-align: center; background: #0f172a; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; }
         .label { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.2rem; }
         .val { font-weight: bold; color: #f8fafc; font-size: 0.95rem; }
         
@@ -20,10 +21,17 @@
         .value-badge { color: #4ade80; font-size: 0.8rem; font-weight: bold; }
         .stake-badge { color: #facc15; font-size: 0.72rem; font-weight: 600; display: block; }
         .no-value { color: #64748b; font-size: 0.75rem; margin-top: 0.6rem; }
+
+        /* Korttiosio */
+        .cards-box { background: #0f172a; border-radius: 8px; padding: 0.75rem; border: 1px solid #334155; }
+        .cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.85rem; }
+        .card-stat { display: flex; justify-content: space-between; margin-bottom: 0.2rem; }
+        .card-stat-label { color: #94a3b8; }
+        .card-stat-val { font-weight: bold; color: #fbbf24; }
     </style>
 </head>
 <body>
-    <h1>⚽ Premier League Value Betting Engine</h1>
+    <h1>⚽ Premier League Value Betting & Cards Engine</h1>
     
     <div class="grid">
         {% for item in predictions %}
@@ -31,6 +39,7 @@
             <div class="teams">{{ item.home_team }} vs {{ item.away_team }}</div>
             <div class="xg">xG: {{ item.expected_goals.home }} - {{ item.expected_goals.away }}</div>
             
+            <div class="section-title">1X2 Value Betting</div>
             <div class="probs-grid">
                 <!-- HOME -->
                 <div>
@@ -74,6 +83,36 @@
                     {% endif %}
                 </div>
             </div>
+
+            <!-- TUOMARI JA KORTTIEN ODOTUSARVOT -->
+            {% if item.cards_analysis %}
+            <div class="section-title">🟨 Referee & Cards Analysis</div>
+            <div class="cards-box">
+                <div class="cards-grid">
+                    <div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Korttiodote:</span>
+                            <span class="card-stat-val">{{ item.cards_analysis.expected_total_cards }}</span>
+                        </div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Punainen kortti:</span>
+                            <span class="card-stat-val">{{ "%.1f" | format(item.cards_analysis.prob_red_card * 100) }}%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Yli 3.5 korttia:</span>
+                            <span class="card-stat-val">{{ "%.1f" | format(item.cards_analysis.prob_over_3_5 * 100) }}%</span>
+                        </div>
+                        <div class="card-stat">
+                            <span class="card-stat-label">Reilu kerroin (>3.5):</span>
+                            <span class="card-stat-val">{{ item.cards_analysis.fair_odds_over_3_5 }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
         </div>
         {% endfor %}
     </div>

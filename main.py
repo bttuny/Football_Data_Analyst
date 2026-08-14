@@ -7,6 +7,8 @@ from src.database import (
 from src.data_fetcher import FootballDataFetcher
 from src.model import PremierLeaguePoissonModel
 from src.evaluation import calculate_brier_score, calculate_log_loss
+from src.cards_data_fetcher import CardsDataFetcher
+from src.cards_model import PremierLeagueCardsModel
 
 def run_pipeline():
     print("=== PL xG PREDICTOR & EVALUATION PIPELINE ===")
@@ -82,7 +84,7 @@ def run_pipeline():
     # -------------------------------------------------------------
     # VAIHE 2: Teach the Poisson xG model using past and current season data
     # -------------------------------------------------------------
-    print("\n2. Koulutetaan Poisson xG -malli...")
+    print("\n2. Koulutetaan Poisson xG -malli... ja Korttimalli...")
     
     # Search for past season matches (2025) to use as training data
     df_past, _ = fetcher.fetch_premier_league_matches(season=2025)
@@ -96,6 +98,13 @@ def run_pipeline():
     model = PremierLeaguePoissonModel()
     model.fit(df_train)
     print(f"   - Opetusmateriaali: {len(df_train)} ottelua. Kotikeskiarvo: {model.league_avg_home_goals:.2f}")
+
+    cards_fetcher = CardsDataFetcher()
+    df_cards = cards_fetcher.fetch_cards_history()
+    
+    cards_model = PremierLeagueCardsModel()
+    cards_model.fit(df_cards)
+    print(f"   - Korttimallin data: {len(df_cards)} ottelua. Liigan korttikeskiarvo: {cards_model.league_avg_cards:.2f}")
 
  # -------------------------------------------------------------
     # VAIHE 3: Tulevien otteluiden ennustaminen (UUSITTU LOGIIKKA)
