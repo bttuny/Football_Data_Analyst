@@ -77,41 +77,34 @@ class BankrollService:
         return True
 
     @staticmethod
-    def settle_bets_for_match(
-        db: Session,
-        match_id: int,
-        actual_home: int,
-        actual_away: int,
-        actual_cards: int = None,
-    ):
-        pending_bets = (
-            db.query(PaperBet)
-            .filter(PaperBet.match_id == match_id, PaperBet.status == "PENDING")
-            .all()
-        )
+    def settle_bets_for_match(db: Session, match_id: int, actual_home: int, actual_away: int, actual_cards: int = None):
+        pending_bets = db.query(PaperBet).filter(
+            PaperBet.match_id == match_id,
+            PaperBet.status == "PENDING"
+        ).all()
         if not pending_bets:
             return
 
         bankroll = BankrollService.get_or_create_bankroll(db)
-        actual_1x2 = (
-            "H"
-            if actual_home > actual_away
-            else ("D" if actual_home == actual_away else "A")
-        )
+        actual_1x2 = "H" if actual_home > actual_away else ("D" if actual_home == actual_away else "A")
 
         for bet in pending_bets:
             bet.settled_at = datetime.utcnow()
             won = False
             if bet.market_type == "1X2":
-                won = bet.outcome == actual_1x2
-            elif bet.market_type == "CARDS_OVER_3_5" and actual_cards is not None:
-                won = actual_cards > 3.5
+                won = (bet.outcome == actual_1x2)
+            elif bet.market_type.startswith("CARDS_OVER_") and actual_cards is not None:
+                # Erotetaan linja, esim. CARDS_OVER_4_5 -> 4.5
+                line_str = bet.market_type.replace("CARDS_OVER_", "").replace("_", ".")
+                try:
+                    line_val = float(line_str)
+                    won = (actual_cards > line_val)
+                except ValueError:
+                    won = False
 
             if won:
                 bet.status = "WON"
-                bet.pnl = round(
-                    float(bet.stake_amount) * (float(bet.odds) - 1.0), 2
-                )
+                bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
             else:
                 bet.status = "LOST"
                 bet.pnl = -float(bet.stake_amount)
