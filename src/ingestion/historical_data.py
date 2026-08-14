@@ -13,7 +13,7 @@ class CardsDataFetcher:
         Lataa menneiden Valioliiga-kausien toteutuneet kortti- ja tuomaritilastot.
         Kaudet: 2324, 2425, 2526
         """
-        seasons = ["2324", "2425", "2526"]
+        seasons = ["2324", "2425", "2526", "2627"]
         frames = []
 
         headers = {
@@ -29,7 +29,7 @@ class CardsDataFetcher:
                     
                     cols = ['Date', 'HomeTeam', 'AwayTeam', 'HY', 'AY', 'HR', 'AR', 'Referee']
                     if all(c in df.columns for c in cols):
-                        df_clean = df[cols].dropna(subset=['HomeTeam', 'AwayTeam', 'Referee']).copy()
+                        df_clean = df[cols].dropna(subset=['HomeTeam', 'AwayTeam', 'Referee', 'HY', 'AY']).copy()
                         
                         # Keltainen = 1 korttipiste, Punainen = 2 korttipistettä
                         df_clean['home_cards'] = pd.to_numeric(df_clean['HY'], errors='coerce').fillna(0) + (pd.to_numeric(df_clean['HR'], errors='coerce').fillna(0) * 2)
