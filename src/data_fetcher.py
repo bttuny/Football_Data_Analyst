@@ -38,6 +38,7 @@ class FootballDataFetcher:
                 full_time = m["score"]["fullTime"]
                 if full_time["home"] is not None and full_time["away"] is not None:
                     finished_rows.append({
+                        "date": utc_date,
                         "home_team": home_team,
                         "away_team": away_team,
                         "home_goals": full_time["home"],
@@ -51,7 +52,8 @@ class FootballDataFetcher:
                     "datetime": utc_date,
                     "status": "SCHEDULED"
                 })
-        df_finished = pd.DataFrame(finished_rows)
+        COLUMNS = ["date", "home_team", "away_team", "home_goals", "away_goals"]
+        df_finished = pd.DataFrame(finished_rows, columns=COLUMNS)
         return df_finished, upcoming_matches
 
                 

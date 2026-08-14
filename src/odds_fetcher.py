@@ -1,24 +1,27 @@
 # src/odds_fetcher.py
 import requests
 import os
+import re
 from typing import Dict, Any
 
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
-BASE_URL = "https://api.the-odds-api.com/v4/sports/soccer_epl/odds"
+def clean_team_name(name: str) -> str:
+    """
+    Puhdistaa joukkueen nimestä FC, AFC ja ylimääräiset välilyönnit vertailua varten.
+    Esim: 'Arsenal FC' -> 'arsenal', 'Hull City AFC' -> 'hull city'
+    """
+    cleaned = re.sub(r'\b(FC|AFC)\b', '', name, flags=re.IGNORECASE)
+    return " ".join(cleaned.lower().split())
 
 class OddsFetcher:
     def __init__(self):
-        self.api_key = ODDS_API_KEY
+        self.api_key = os.getenv("ODDS_API_KEY")
 
     def fetch_current_odds(self) -> Dict[str, Dict[str, float]]:
-        """
-        Hakee Valioliigan 1X2-kertoimet ja palauttaa ne muodossa:
-        { "Arsenal FC vs Coventry City FC": {"H": 1.35, "D": 5.50, "A": 9.00} }
-        """
         if not self.api_key:
-            print("WARNING: ODDS_API_KEY puuttuu, kertoimia ei haeta.")
+            print(">>> VIRHE: ODDS_API_KEY puuttuu ympäristömuuttujista!")
             return {}
 
+        url = "https://api.the-odds-api.com/v4/sports/soccer_epl/odds"
         params = {
             "apiKey": self.api_key,
             "regions": "eu",
@@ -26,9 +29,8 @@ class OddsFetcher:
             "oddsFormat": "decimal"
         }
 
-        response = requests.get(BASE_URL, params=params)
+        response = requests.get(url, params=params)
         if response.status_code != 200:
-            print(f"Odds API Error: {response.status_code}")
             return {}
 
         data = response.json()
@@ -38,7 +40,6 @@ class OddsFetcher:
             home_team = match["home_team"]
             away_team = match["away_team"]
             
-            # Etsitään ensimmäinen saatavilla oleva bookkeri (esim. Pinnacle tai Unibet)
             if match.get("bookmakers"):
                 bookie = match["bookmakers"][0]
                 h2h_market = next((m for m in bookie["markets"] if m["key"] == "h2h"), None)
@@ -53,7 +54,8 @@ class OddsFetcher:
                         elif outcome["name"] == "Draw":
                             d_odds = outcome["price"]
 
-                    key = f"{home_team} vs {away_team}"
-                    odds_dict[key] = {"H": h_odds, "D": d_odds, "A": a_odds}
+                    # Tallennetaan puhdistetulla avaimella
+                    clean_key = f"{clean_team_name(home_team)} vs {clean_team_name(away_team)}"
+                    odds_dict[clean_key] = {"H": h_odds, "D": d_odds, "A": a_odds}
 
         return odds_dict

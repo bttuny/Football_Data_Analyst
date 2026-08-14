@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from src.database import SessionLocal, Match, MatchPrediction, PredictionEvaluation
-from src.odds_fetcher import OddsFetcher
+from src.odds_fetcher import OddsFetcher, clean_team_name
 from src.value_calculator import calculate_value_bets
 
 app = FastAPI(
@@ -23,12 +23,8 @@ def get_db():
 
 # REST API ENDPOINTS (JSON API)
 
-@app.get("/api/v1/predictions/upcoming", summary="Get upcoming match predictions")
+@app.get("/api/v1/predictions/upcoming")
 def get_upcoming_predictions(db: Session = Depends(get_db)):
-    """
-    Get predictions for upcoming matches.
-    Returns a list of upcoming matches with their predicted probabilities.
-    """
     matches = db.query(Match).filter(Match.status == 'LOCKED').all()
     
     odds_fetcher = OddsFetcher()
@@ -42,8 +38,9 @@ def get_upcoming_predictions(db: Session = Depends(get_db)):
         ).order_by(MatchPrediction.created_at.desc()).first()
 
         if latest_pred:
-            match_key = f"{m.home_team} vs {m.away_team}"
-            match_odds = current_odds.get(match_key, {"H": 0.0, "D": 0.0, "A": 0.0})
+            # Käytetään puhdistettua avainta haussa
+            clean_match_key = f"{clean_team_name(m.home_team)} vs {clean_team_name(m.away_team)}"
+            match_odds = current_odds.get(clean_match_key, {"H": 0.0, "D": 0.0, "A": 0.0})
 
             prob_h = float(latest_pred.prob_home_win)
             prob_d = float(latest_pred.prob_draw)
