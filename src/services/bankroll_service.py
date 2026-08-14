@@ -1,3 +1,4 @@
+# src/services/bankroll_service.py
 from datetime import datetime
 from sqlalchemy.orm import Session
 from src.models.entities import Bankroll, PaperBet
@@ -28,18 +29,25 @@ class BankrollService:
         odds: float,
         ev_pct: float,
         stake_pct: float,
+        market_type: str = "1X2",
     ) -> bool:
-        """Asettaa automaattisen Kelly-vedon, jos sitä ei ole vielä asetettu."""
+        """Tallentaa vedon kantaan."""
         existing = (
             db.query(PaperBet)
-            .filter(PaperBet.match_id == match_id, PaperBet.outcome == outcome)
+            .filter(
+                PaperBet.match_id == match_id,
+                PaperBet.market_type == market_type,
+                PaperBet.outcome == outcome,
+            )
             .first()
         )
         if existing:
             return False
 
         bankroll = BankrollService.get_or_create_bankroll(db)
-        stake_eur = round(float(bankroll.current_balance) * (stake_pct / 100.0), 2)
+        stake_eur = round(
+            float(bankroll.current_balance) * (stake_pct / 100.0), 2
+        )
 
         if stake_eur < 1.0:
             return False
@@ -47,6 +55,7 @@ class BankrollService:
         bet = PaperBet(
             match_id=match_id,
             match_name=match_name,
+            market_type=market_type,
             outcome=outcome,
             odds=odds,
             ev_percentage=ev_pct,
@@ -61,9 +70,13 @@ class BankrollService:
 
     @staticmethod
     def settle_bets_for_match(
-        db: Session, match_id: int, actual_home: int, actual_away: int
+        db: Session,
+        match_id: int,
+        actual_home: int,
+        actual_away: int,
+        actual_cards: int = None,
     ):
-        """Ratkaisee otteluun liittyvät avoimet vedot ja päivittää kassan."""
+        """Ratkaisee sekä 1X2- että korttivedot."""
         pending_bets = (
             db.query(PaperBet)
             .filter(PaperBet.match_id == match_id, PaperBet.status == "PENDING")
@@ -72,16 +85,25 @@ class BankrollService:
         if not pending_bets:
             return
 
-        actual_outcome = (
+        bankroll = BankrollService.get_or_create_bankroll(db)
+
+        # 1X2 voittaja
+        actual_1x2 = (
             "H"
             if actual_home > actual_away
             else ("D" if actual_home == actual_away else "A")
         )
-        bankroll = BankrollService.get_or_create_bankroll(db)
 
         for bet in pending_bets:
             bet.settled_at = datetime.utcnow()
-            if bet.outcome == actual_outcome:
+            won = False
+
+            if bet.market_type == "1X2":
+                won = bet.outcome == actual_1x2
+            elif bet.market_type == "CARDS_OVER_3_5" and actual_cards is not None:
+                won = actual_cards > 3.5
+
+            if won:
                 bet.status = "WON"
                 bet.pnl = round(
                     float(bet.stake_amount) * (float(bet.odds) - 1.0), 2
@@ -96,10 +118,12 @@ class BankrollService:
 
     @staticmethod
     def get_portfolio_summary(db: Session) -> dict:
-        """Laskee Paper Trading -tilastot dashboardia varten."""
         bankroll = BankrollService.get_or_create_bankroll(db)
         bets = (
-            db.query(PaperBet).order_by(PaperBet.placed_at.desc()).limit(50).all()
+            db.query(PaperBet)
+            .order_by(PaperBet.placed_at.desc())
+            .limit(100)
+            .all()
         )
 
         settled = [b for b in bets if b.status in ["WON", "LOST"]]
@@ -107,15 +131,23 @@ class BankrollService:
         total_pnl = sum(float(b.pnl) for b in settled)
         won_count = sum(1 for b in settled if b.status == "WON")
 
-        roi = (total_pnl / total_staked * 100) if total_staked > 0 else 0.0
-        win_rate = (won_count / len(settled) * 100) if settled else 0.0
+        # Eritellään 1X2 ja Kortit
+        cards_settled = [b for b in settled if b.market_type == "CARDS_OVER_3_5"]
+        cards_pnl = sum(float(b.pnl) for b in cards_settled)
 
         return {
             "current_balance": round(float(bankroll.current_balance), 2),
             "initial_balance": round(float(bankroll.initial_balance), 2),
             "total_pnl": round(total_pnl, 2),
-            "roi_pct": round(roi, 1),
-            "win_rate_pct": round(win_rate, 1),
+            "cards_pnl": round(cards_pnl, 2),
+            "roi_pct": (
+                round(total_pnl / total_staked * 100, 1)
+                if total_staked > 0
+                else 0.0
+            ),
+            "win_rate_pct": (
+                round(won_count / len(settled) * 100, 1) if settled else 0.0
+            ),
             "settled_bets_count": len(settled),
             "pending_bets_count": sum(
                 1 for b in bets if b.status == "PENDING"

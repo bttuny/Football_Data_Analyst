@@ -1,6 +1,6 @@
 # src/api/routes.py
-from fastapi import FastAPI, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Depends, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -118,3 +118,32 @@ def render_bankroll(request: Request, db: Session = Depends(get_db)):
         "views/bankroll.html",
         {"summary": summary, "active_tab": "bankroll"},
     )
+
+@app.post("/api/v1/bets/cards")
+def place_card_bet(
+    match_id: int = Form(...),
+    match_name: str = Form(...),
+    user_odds: float = Form(...),
+    prob_over_3_5: float = Form(...),
+    db: Session = Depends(get_db),
+):
+    if user_odds > 1.0 and prob_over_3_5 > 0:
+        ev = (prob_over_3_5 * user_odds) - 1.0
+
+        # Kelly panos
+        b = user_odds - 1.0
+        kelly = (b * prob_over_3_5 - (1.0 - prob_over_3_5)) / b if b > 0 else 0
+        stake_pct = min(2.0, round(max(0.0, kelly * 0.25) * 100, 1))
+
+        if ev > 0.02 and stake_pct >= 0.1:
+            BankrollService.place_value_bet(
+                db=db,
+                match_id=match_id,
+                match_name=match_name,
+                outcome="Yli 3.5",
+                odds=user_odds,
+                ev_pct=round(ev * 100, 1),
+                stake_pct=stake_pct,
+                market_type="CARDS_OVER_3_5",
+            )
+    return RedirectResponse(url="/bankroll", status_code=303)

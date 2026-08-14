@@ -72,14 +72,13 @@ class PaperBet(Base):
     bet_id = Column(Integer, primary_key=True, index=True)
     match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
     match_name = Column(String(150), nullable=False)
-    outcome = Column(String(10), nullable=False)  # 'H', 'D', 'A'
+    market_type = Column(String(30), default="1X2")  # '1X2' tai 'CARDS_OVER_3_5'
+    outcome = Column(String(20), nullable=False)      # 'H', 'D', 'A', 'OVER_3_5'
     odds = Column(Numeric(6, 2), nullable=False)
     ev_percentage = Column(Numeric(6, 2), nullable=False)
     stake_amount = Column(Numeric(10, 2), nullable=False)
     stake_percentage = Column(Numeric(5, 2), nullable=False)
-    status = Column(
-        String(20), default="PENDING"
-    )  # 'PENDING', 'WON', 'LOST', 'VOID'
+    status = Column(String(20), default="PENDING")    # 'PENDING', 'WON', 'LOST', 'VOID'
     pnl = Column(Numeric(10, 2), default=0.00)
     placed_at = Column(DateTime, default=datetime.utcnow)
     settled_at = Column(DateTime, nullable=True)
