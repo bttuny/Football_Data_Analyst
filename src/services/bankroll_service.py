@@ -119,38 +119,50 @@ class BankrollService:
     @staticmethod
     def get_portfolio_summary(db: Session) -> dict:
         bankroll = BankrollService.get_or_create_bankroll(db)
-        bets = (
-            db.query(PaperBet)
-            .order_by(PaperBet.placed_at.desc())
-            .limit(100)
-            .all()
-        )
-
+        bets = db.query(PaperBet).order_by(PaperBet.placed_at.desc()).limit(100).all()
         settled = [b for b in bets if b.status in ["WON", "LOST"]]
+
+        # Kokonaistilastot
         total_staked = sum(float(b.stake_amount) for b in settled)
         total_pnl = sum(float(b.pnl) for b in settled)
-        won_count = sum(1 for b in settled if b.status == "WON")
+        total_won = sum(1 for b in settled if b.status == "WON")
 
-        # Eritellään 1X2 ja Kortit
+        # 1X2 -markkinan tilastot
+        m_1x2_settled = [b for b in settled if b.market_type == "1X2"]
+        m_1x2_staked = sum(float(b.stake_amount) for b in m_1x2_settled)
+        m_1x2_pnl = sum(float(b.pnl) for b in m_1x2_settled)
+        m_1x2_won = sum(1 for b in m_1x2_settled if b.status == "WON")
+
+        # Korttimarkkinan tilastot
         cards_settled = [b for b in settled if b.market_type == "CARDS_OVER_3_5"]
+        cards_staked = sum(float(b.stake_amount) for b in cards_settled)
         cards_pnl = sum(float(b.pnl) for b in cards_settled)
+        cards_won = sum(1 for b in cards_settled if b.status == "WON")
 
         return {
             "current_balance": round(float(bankroll.current_balance), 2),
             "initial_balance": round(float(bankroll.initial_balance), 2),
             "total_pnl": round(total_pnl, 2),
-            "cards_pnl": round(cards_pnl, 2),
-            "roi_pct": (
-                round(total_pnl / total_staked * 100, 1)
-                if total_staked > 0
-                else 0.0
-            ),
-            "win_rate_pct": (
-                round(won_count / len(settled) * 100, 1) if settled else 0.0
-            ),
+            "total_roi_pct": round(total_pnl / total_staked * 100, 1) if total_staked > 0 else 0.0,
+            "total_win_rate": round(total_won / len(settled) * 100, 1) if settled else 0.0,
+            
+            # 1X2 mallin luvut
+            "m_1x2": {
+                "pnl": round(m_1x2_pnl, 2),
+                "roi_pct": round(m_1x2_pnl / m_1x2_staked * 100, 1) if m_1x2_staked > 0 else 0.0,
+                "win_rate": round(m_1x2_won / len(m_1x2_settled) * 100, 1) if m_1x2_settled else 0.0,
+                "count": len(m_1x2_settled)
+            },
+            
+            # Korttimallin luvut
+            "cards": {
+                "pnl": round(cards_pnl, 2),
+                "roi_pct": round(cards_pnl / cards_staked * 100, 1) if cards_staked > 0 else 0.0,
+                "win_rate": round(cards_won / len(cards_settled) * 100, 1) if cards_settled else 0.0,
+                "count": len(cards_settled)
+            },
+
             "settled_bets_count": len(settled),
-            "pending_bets_count": sum(
-                1 for b in bets if b.status == "PENDING"
-            ),
-            "recent_bets": bets,
+            "pending_bets_count": sum(1 for b in bets if b.status == "PENDING"),
+            "recent_bets": bets
         }
