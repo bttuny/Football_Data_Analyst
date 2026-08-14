@@ -21,6 +21,7 @@ class Match(Base):
     home_team = Column(String(100), nullable=False)
     away_team = Column(String(100), nullable=False)
     match_datetime = Column(DateTime, nullable=False)
+    referee = Column(String(100), nullable=True)
     status = Column(String(20), default="SCHEDULED")
     actual_home_goals = Column(Integer, nullable=True)
     actual_away_goals = Column(Integer, nullable=True)

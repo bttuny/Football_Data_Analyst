@@ -65,7 +65,7 @@ def get_upcoming_predictions(db: Session = Depends(get_db)):
                 match_odds.get("D", 0.0),
                 match_odds.get("A", 0.0),
             )
-            card_pred = cards_model.predict_cards(m.home_team, m.away_team)
+            card_pred = cards_model.predict_cards(m.home_team, m.away_team, referee=m.referee)
 
             # Automaattinen Paper Betin asetus, jos ylikerroin löytyy
             for vb in value_analysis:

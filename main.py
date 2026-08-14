@@ -128,11 +128,15 @@ def run_pipeline():
                 match_datetime=datetime.fromisoformat(
                     m_data["datetime"].replace("Z", "+00:00")
                 ),
+                referee=m_data.get("referee"),
                 status="SCHEDULED",
             )
             db.add(match_obj)
             db.commit()
             db.refresh(match_obj)
+        else:
+            if m_data.get("referee"):
+                match_obj.referee = m_data.get("referee")
 
         if match_obj.status in ["SCHEDULED", "LOCKED"]:
             pred = model.predict_match(h, a)
