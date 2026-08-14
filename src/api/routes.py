@@ -14,6 +14,9 @@ from src.quant.value_finder import calculate_value_bets
 from src.quant.cards_model import PremierLeagueCardsModel
 from src.services.bankroll_service import BankrollService
 
+from zoneinfo import ZoneInfo
+from datetime import timezone
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Top 5 Leagues Quant Analytics API")
@@ -59,9 +62,10 @@ def get_upcoming_predictions(
                 sport_key=sport_key
             )
 
-        odds_dict = current_odds_by_sport[sport_key]
-        clean_key = f"{clean_team_name(m.home_team)} vs {clean_team_name(m.away_team)}"
-        match_odds = odds_dict.get(clean_key, {"H": 0.0, "D": 0.0, "A": 0.0})
+        events_list = current_odds_by_sport[sport_key]
+        match_odds = odds_fetcher.get_odds_for_match(
+            m.home_team, m.away_team, events_list, sport_key
+        )
 
         latest_pred = (
             db.query(MatchPrediction)
@@ -84,10 +88,7 @@ def get_upcoming_predictions(
                 match_odds.get("A", 0.0),
             )
 
-            # Käytetään kyseisen liigan omaa korttimallia
-            c_model = league_cards_models.get(
-                l_code, PremierLeagueCardsModel()
-            )
+            c_model = league_cards_models.get(l_code, PremierLeagueCardsModel())
             card_pred = c_model.predict_cards(
                 m.home_team, m.away_team, referee=m.referee
             )
@@ -106,10 +107,19 @@ def get_upcoming_predictions(
                         market_type="1X2",
                     )
 
+            formatted_time = ""
+            if m.match_datetime:
+                dt_utc = m.match_datetime
+                if dt_utc.tzinfo is None:
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                dt_helsinki = dt_utc.astimezone(ZoneInfo("Europe/Helsinki"))
+                formatted_time = dt_helsinki.strftime("%d.%m. klo %H:%M")
+
             results.append({
                 "match_id": m.match_id,
                 "league_code": l_code,
                 "league_name": m.league.name if m.league else "Valioliiga",
+                "match_datetime": formatted_time,
                 "home_team": m.home_team,
                 "away_team": m.away_team,
                 "expected_goals": {
