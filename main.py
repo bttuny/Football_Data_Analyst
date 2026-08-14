@@ -106,13 +106,13 @@ def run_pipeline():
     cards_model.fit(df_cards)
     print(f"   - Korttimallin data: {len(df_cards)} ottelua. Liigan korttikeskiarvo: {cards_model.league_avg_cards:.2f}")
 
- # -------------------------------------------------------------
-    # VAIHE 3: Tulevien otteluiden ennustaminen (UUSITTU LOGIIKKA)
+    # -------------------------------------------------------------
+    # VAIHE 3: Tulevien otteluiden ennustaminen
     # -------------------------------------------------------------
     print("\n3. Lasketaan tuoreet ennusteet tuleville otteluille...")
-    sample_upcoming = upcoming_matches[:5]
-
-    for match_data in sample_upcoming:
+    
+    # POISTETTU [:5] LEIKKAUS -> Käydään läpi kaikki tulevat ottelut:
+    for match_data in upcoming_matches:
         home_team = match_data["home_team"]
         away_team = match_data["away_team"]
 
@@ -122,7 +122,7 @@ def run_pipeline():
             Match.league_id == pl_league.league_id
         ).first()
 
-        # Jos ottelua ei ole vielä kannassa, luodaan se
+        # Luodaan ottelu kantaan, jos sitä ei vielä ole
         if not match_obj:
             match_obj = Match(
                 league_id=pl_league.league_id,
@@ -136,11 +136,13 @@ def run_pipeline():
             db.commit()
             db.refresh(match_obj)
 
-        # Lasketaan ja päivitetään ennuste aina, jos peliä ei ole vielä pelattu (status != 'FINISHED')
+        # Lasketaan ja päivitetään ennuste kaikille pelaamattomille peleille
         if match_obj.status in ["SCHEDULED", "LOCKED"]:
             pred = model.predict_match(home_team, away_team)
             save_prediction(pred, match_obj.match_id)
-            print(f"   -> Uusi ennuste laskettu: {home_team} vs {away_team} (xG: {pred['expected_goals_home']}-{pred['expected_goals_away']} | Kotivoitto: {pred['prob_home_win']*100:.1f}%)")
+            match_obj.status = "LOCKED"
+            db.commit()
+            print(f"   -> Ennuste: {home_team} vs {away_team} (xG: {pred['expected_goals_home']}-{pred['expected_goals_away']})")
 
     db.close()
     print("\n=== PIPELINE VALMIS ===")

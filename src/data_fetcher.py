@@ -24,11 +24,14 @@ class FootballDataFetcher:
 
         data = response.json()
         matches = data.get("matches", [])
-        
+
+        upcoming_raw = [m for m in matches if m.get("status") in ["TIMED", "SCHEDULED"]]
+        upcoming_raw.sort(key=lambda x: x.get("utcDate", ""))
+
         finished_rows = []
         upcoming_matches = []
 
-        for m in matches:
+        for m in upcoming_raw[:10]:
             status = m.get("status")
             home_team = m["homeTeam"]["name"]
             away_team = m["awayTeam"]["name"]

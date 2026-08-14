@@ -37,7 +37,13 @@ def get_db():
 
 @app.get("/api/v1/predictions/upcoming", summary="Hae tulevat ennusteet, kertoimet ja kortit")
 def get_upcoming_predictions(db: Session = Depends(get_db)):
-    matches = db.query(Match).filter(Match.status.in_(['SCHEDULED', 'LOCKED'])).all()
+    matches = (
+        db.query(Match)
+        .filter(Match.status.in_(['SCHEDULED', 'LOCKED']))
+        .order_by(Match.match_datetime.asc())
+        .limit(10)
+        .all()
+    )
     
     odds_fetcher = OddsFetcher()
     current_odds = odds_fetcher.fetch_current_odds()
