@@ -1,0 +1,18 @@
+{% extends 'layouts/base.html' %}
+
+{% block title %}Ottelut & Arvovedot - Quant Engine{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div>
+        <h1 class="text-2xl font-bold text-white">Seuraavat ottelut & Value Bets</h1>
+        <p class="text-sm text-slate-400">Dixon-Coles maaliodotteet, markkinakertoimet ja 1/4 Kelly -arvovalinnat.</p>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    {% for item in predictions %}
+        {% include 'components/match_card.html' %}
+    {% endfor %}
+</div>
+{% endblock %}

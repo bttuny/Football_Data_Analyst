@@ -1,0 +1,92 @@
+{% extends 'layouts/base.html' %}
+
+{% block title %}Paper Trading Portfolio - Quant Engine{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-white">💼 Paper Trading Portfolio</h1>
+    <p class="text-sm text-slate-400">Kassan kehitys, avoimet arvovedot ja toteutunut ROI (Yield).</p>
+</div>
+
+<!-- KPI Mittarit -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+        <div class="text-xs text-slate-400 font-medium">Kassan Saldo</div>
+        <div class="text-2xl font-bold text-white mt-1">{{ summary.current_balance }} €</div>
+        <div class="text-[11px] text-slate-500">Alku: {{ summary.initial_balance }} €</div>
+    </div>
+
+    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+        <div class="text-xs text-slate-400 font-medium">Kokonais PnL</div>
+        <div class="text-2xl font-bold mt-1 {% if summary.total_pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+            {% if summary.total_pnl >= 0 %}+{% endif %}{{ summary.total_pnl }} €
+        </div>
+        <div class="text-[11px] text-slate-500">Nettotuotto</div>
+    </div>
+
+    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+        <div class="text-xs text-slate-400 font-medium">ROI (Yield)</div>
+        <div class="text-2xl font-bold mt-1 {% if summary.roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+            {{ summary.roi_pct }} %
+        </div>
+        <div class="text-[11px] text-slate-500">Tuotto panostuksille</div>
+    </div>
+
+    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+        <div class="text-xs text-slate-400 font-medium">Osumatarkkuus</div>
+        <div class="text-2xl font-bold text-sky-400 mt-1">{{ summary.win_rate_pct }} %</div>
+        <div class="text-[11px] text-slate-500">Ratkenneita vetoja: {{ summary.settled_bets_count }} kpl</div>
+    </div>
+</div>
+
+<!-- Vetotaulukko -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+    <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
+        <h2 class="font-bold text-white text-base">Asetetut arvovedot</h2>
+        <span class="text-xs bg-slate-800 text-slate-300 py-1 px-2.5 rounded-full">Avoimia: {{ summary.pending_bets_count }} kpl</span>
+    </div>
+    
+    <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+                <tr>
+                    <th class="py-3 px-4">Ottelu</th>
+                    <th class="py-3 px-4">Valinta</th>
+                    <th class="py-3 px-4">Kerroin</th>
+                    <th class="py-3 px-4">EV%</th>
+                    <th class="py-3 px-4">Panos (€ / %)</th>
+                    <th class="py-3 px-4">Tila</th>
+                    <th class="py-3 px-4 text-right">Tuotto (PnL)</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60">
+                {% for bet in summary.recent_bets %}
+                <tr class="hover:bg-slate-800/30 transition">
+                    <td class="py-3 px-4 font-medium text-white">{{ bet.match_name }}</td>
+                    <td class="py-3 px-4 font-bold text-sky-400">{{ bet.outcome }}</td>
+                    <td class="py-3 px-4">{{ bet.odds }}</td>
+                    <td class="py-3 px-4 text-emerald-400 font-semibold">+{{ bet.ev_percentage }}%</td>
+                    <td class="py-3 px-4">{{ bet.stake_amount }} € ({{ bet.stake_percentage }}%)</td>
+                    <td class="py-3 px-4">
+                        {% if bet.status == 'PENDING' %}
+                            <span class="bg-amber-950/80 text-amber-400 border border-amber-500/40 text-[10px] font-bold px-2 py-0.5 rounded">AVOIN</span>
+                        {% elif bet.status == 'WON' %}
+                            <span class="bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded">VOITTO</span>
+                        {% else %}
+                            <span class="bg-rose-950/80 text-rose-400 border border-rose-500/40 text-[10px] font-bold px-2 py-0.5 rounded">TAPPIO</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-3 px-4 text-right font-bold {% if bet.pnl > 0 %}text-emerald-400{% elif bet.pnl < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                        {% if bet.pnl > 0 %}+{% endif %}{{ bet.pnl }} €
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="py-6 text-center text-slate-500">Ei vielä asetettuja vetoja. Vedot muodostuvat automaattisesti +EV-kohteista!</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between">
+    <div>
+        <div class="flex justify-between items-start mb-2">
+            <h3 class="text-base font-bold text-white leading-tight">{{ item.home_team }} vs {{ item.away_team }}</h3>
+        </div>
+        <div class="text-xs font-semibold text-sky-400 mb-4 tracking-wide">
+            xG Ennuste: {{ item.expected_goals.home }} – {{ item.expected_goals.away }}
+        </div>
+
+        <!-- 1X2 Probs & Value -->
+        <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">1X2 Arvovedot</div>
+        <div class="grid grid-cols-3 gap-2 bg-slate-950 p-2.5 rounded-lg text-center mb-4">
+            <!-- Koti -->
+            <div>
+                <div class="text-[10px] text-slate-400 font-medium">1 ({{ "%.0f" | format(item.probabilities.home_win * 100) }}%)</div>
+                <div class="text-xs font-bold text-white">{{ item.odds.H if item.odds.H > 0 else '-' }}</div>
+                {% if item.value_analysis and item.value_analysis[0].is_value %}
+                    <div class="mt-1.5 bg-emerald-950/80 border border-emerald-500/50 rounded py-0.5 px-1">
+                        <span class="text-[11px] font-bold text-emerald-400 block">+{{ item.value_analysis[0].ev_percentage }}% EV</span>
+                        <span class="text-[9px] font-semibold text-amber-300 block">Panos: {{ item.value_analysis[0].kelly_stake_pct }}%</span>
+                    </div>
+                {% else %}
+                    <div class="text-[10px] text-slate-500 mt-2">Ei arvoa</div>
+                {% endif %}
+            </div>
+
+            <!-- Tasapeli -->
+            <div>
+                <div class="text-[10px] text-slate-400 font-medium">X ({{ "%.0f" | format(item.probabilities.draw * 100) }}%)</div>
+                <div class="text-xs font-bold text-white">{{ item.odds.D if item.odds.D > 0 else '-' }}</div>
+                {% if item.value_analysis and item.value_analysis[1].is_value %}
+                    <div class="mt-1.5 bg-emerald-950/80 border border-emerald-500/50 rounded py-0.5 px-1">
+                        <span class="text-[11px] font-bold text-emerald-400 block">+{{ item.value_analysis[1].ev_percentage }}% EV</span>
+                        <span class="text-[9px] font-semibold text-amber-300 block">Panos: {{ item.value_analysis[1].kelly_stake_pct }}%</span>
+                    </div>
+                {% else %}
+                    <div class="text-[10px] text-slate-500 mt-2">Ei arvoa</div>
+                {% endif %}
+            </div>
+
+            <!-- Vieras -->
+            <div>
+                <div class="text-[10px] text-slate-400 font-medium">2 ({{ "%.0f" | format(item.probabilities.away_win * 100) }}%)</div>
+                <div class="text-xs font-bold text-white">{{ item.odds.A if item.odds.A > 0 else '-' }}</div>
+                {% if item.value_analysis and item.value_analysis[2].is_value %}
+                    <div class="mt-1.5 bg-emerald-950/80 border border-emerald-500/50 rounded py-0.5 px-1">
+                        <span class="text-[11px] font-bold text-emerald-400 block">+{{ item.value_analysis[2].ev_percentage }}% EV</span>
+                        <span class="text-[9px] font-semibold text-amber-300 block">Panos: {{ item.value_analysis[2].kelly_stake_pct }}%</span>
+                    </div>
+                {% else %}
+                    <div class="text-[10px] text-slate-500 mt-2">Ei arvoa</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Korttianalyysi -->
+    {% if item.cards_analysis %}
+    <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-2.5 text-xs">
+        <div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1 flex items-center justify-between">
+            <span>🟨 Korttiodote</span>
+            <span class="text-slate-400 font-normal">Ref: {{ item.cards_analysis.referee }}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-slate-300">
+            <div>Odotus: <strong class="text-amber-300">{{ item.cards_analysis.expected_total_cards }}</strong> korttia</div>
+            <div>Yli 3.5: <strong class="text-amber-300">{{ "%.0f" | format(item.cards_analysis.prob_over_3_5 * 100) }}%</strong> ({{ item.cards_analysis.fair_odds_over_3_5 }})</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
