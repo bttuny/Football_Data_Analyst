@@ -26,6 +26,8 @@ class Match(Base):
     actual_home_goals = Column(Integer, nullable=True)
     actual_away_goals = Column(Integer, nullable=True)
 
+    league = relationship("League")
+
 
 class MatchPrediction(Base):
     __tablename__ = "match_predictions"
@@ -71,6 +73,7 @@ class PaperBet(Base):
 
     bet_id = Column(Integer, primary_key=True, index=True)
     match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
+    league_code = Column(String(20), default="PL")
     match_name = Column(String(150), nullable=False)
     market_type = Column(String(30), default="1X2")  # '1X2' tai 'CARDS_OVER_3_5'
     outcome = Column(String(20), nullable=False)      # 'H', 'D', 'A', 'OVER_3_5'

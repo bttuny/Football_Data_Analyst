@@ -1,18 +1,34 @@
 {% extends 'layouts/base.html' %}
 
-{% block title %}Ottelut & Arvovedot - Quant Engine{% endblock %}
+{% block title %}Top 5 Liigat & Arvovedot - Quant Engine{% endblock %}
 
 {% block content %}
 <div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
     <div>
         <h1 class="text-2xl font-bold text-white">Seuraavat ottelut & Value Bets</h1>
-        <p class="text-sm text-slate-400">Dixon-Coles maaliodotteet, markkinakertoimet ja 1/4 Kelly -arvovalinnat.</p>
+        <p class="text-sm text-slate-400">Euroopan Top 5 -liigat: Dixon-Coles xG, kertoimet ja 1/4 Kelly -vedot.</p>
+    </div>
+
+    <!-- Sarjasuodattimet -->
+    <div class="flex flex-wrap gap-2">
+        <a href="/?league=ALL" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition {% if current_league == 'ALL' %}bg-sky-600 text-white{% else %}bg-slate-900 text-slate-400 hover:text-white border border-slate-800{% endif %}">
+            🌍 Kaikki
+        </a>
+        {% for code, cfg in leagues_config.items() %}
+        <a href="/?league={{ code }}" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition {% if current_league == code %}bg-sky-600 text-white{% else %}bg-slate-900 text-slate-400 hover:text-white border border-slate-800{% endif %}">
+            {{ cfg.name }}
+        </a>
+        {% endfor %}
     </div>
 </div>
 
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     {% for item in predictions %}
         {% include 'components/match_card.html' %}
+    {% else %}
+        <div class="col-span-full py-12 text-center text-slate-500 bg-slate-900/50 rounded-xl border border-slate-800">
+            Ei otteluita valitulle sarjalle.
+        </div>
     {% endfor %}
 </div>
 {% endblock %}

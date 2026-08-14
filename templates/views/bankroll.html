@@ -1,11 +1,11 @@
 {% extends 'layouts/base.html' %}
 
-{% block title %}Paper Trading Portfolio - Quant Engine{% endblock %}
+{% block title %}Paper Trading Portfolio - Top 5 Liigat{% endblock %}
 
 {% block content %}
 <div class="mb-6">
     <h1 class="text-2xl font-bold text-white">💼 Paper Trading Portfolio</h1>
-    <p class="text-sm text-slate-400">Mallien erillinen seuranta: 1X2 Dixon-Coles vs. Korttimallin manuaaliset vedot.</p>
+    <p class="text-sm text-slate-400">Kassan kehitys ja mallien suorituskyky eriytettynä Euroopan Top 5 -sarjoihin.</p>
 </div>
 
 <!-- Kassan Yleiskatsaus -->
@@ -21,7 +21,7 @@
         <div class="text-2xl font-bold mt-1 {% if summary.total_pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
             {% if summary.total_pnl >= 0 %}+{% endif %}{{ summary.total_pnl }} €
         </div>
-        <div class="text-[11px] text-slate-500">Yhteistuotto (Kaikki markkinat)</div>
+        <div class="text-[11px] text-slate-500">Kaikkien sarjojen nettotuotto</div>
     </div>
 
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
@@ -29,78 +29,44 @@
         <div class="text-2xl font-bold mt-1 {% if summary.total_roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
             {{ summary.total_roi_pct }} %
         </div>
-        <div class="text-[11px] text-slate-500">Osumatarkkuus: {{ summary.total_win_rate }}% ({{ summary.settled_bets_count }} kpl)</div>
+        <div class="text-[11px] text-slate-500">Osumat: {{ summary.total_win_rate }}% ({{ summary.settled_bets_count }} kpl)</div>
     </div>
 </div>
 
-<!-- Mallikohtainen suorituskyky & Kalibrointimittarit (Brier Score) -->
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-    <!-- 1X2 Malli -->
-    <div class="bg-slate-900/90 border border-sky-900/40 p-4 rounded-xl">
-        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-            <span class="font-bold text-sky-400 text-sm flex items-center gap-1.5">
-                ⚽ 1X2 Dixon-Coles Malli
-            </span>
-            <span class="text-xs bg-sky-950 text-sky-300 border border-sky-800/60 px-2 py-0.5 rounded">
-                {{ summary.m_1x2.count }} ratkennutta
-            </span>
-        </div>
-        <div class="grid grid-cols-4 gap-2 text-center">
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">PnL</div>
-                <div class="text-sm font-bold {% if summary.m_1x2.pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                    {% if summary.m_1x2.pnl >= 0 %}+{% endif %}{{ summary.m_1x2.pnl }} €
+<!-- Liigakohtainen Suorituskykytaulukko -->
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-8 shadow-lg">
+    <h2 class="font-bold text-white text-base mb-4">🏆 Sarjakohtainen mallien tehokkuus & Brier Score</h2>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+        {% for code, data in summary.leagues_breakdown.items() %}
+        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+            <div class="text-xs font-bold text-white mb-2 flex justify-between items-center">
+                <span>{{ data.name }}</span>
+                <span class="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">{{ data.count }} vetoa</span>
+            </div>
+            <div class="space-y-1 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">PnL:</span>
+                    <strong class="{% if data.pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+                        {% if data.pnl >= 0 %}+{% endif %}{{ data.pnl }} €
+                    </strong>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">ROI:</span>
+                    <strong class="{% if data.roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+                        {{ data.roi_pct }} %
+                    </strong>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Osumat:</span>
+                    <strong class="text-white">{{ data.win_rate }} %</strong>
+                </div>
+                <div class="flex justify-between pt-1 border-t border-slate-900">
+                    <span class="text-sky-400 font-medium">Brier:</span>
+                    <strong class="text-sky-300">{{ data.brier_score }}</strong>
                 </div>
             </div>
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">ROI %</div>
-                <div class="text-sm font-bold {% if summary.m_1x2.roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                    {{ summary.m_1x2.roi_pct }} %
-                </div>
-            </div>
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">Osumat</div>
-                <div class="text-sm font-bold text-white">{{ summary.m_1x2.win_rate }} %</div>
-            </div>
-            <div class="bg-slate-950 p-2 rounded border border-sky-950" title="Pienempi arvo = parempi kalibrointi">
-                <div class="text-[10px] text-sky-400 font-semibold">Brier Score</div>
-                <div class="text-sm font-bold text-sky-300">{{ summary.m_1x2.brier_score }}</div>
-            </div>
         </div>
-    </div>
-
-    <!-- Korttimalli -->
-    <div class="bg-slate-900/90 border border-amber-900/40 p-4 rounded-xl">
-        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
-            <span class="font-bold text-amber-400 text-sm flex items-center gap-1.5">
-                🟨 Korttimalli (Over 3.5)
-            </span>
-            <span class="text-xs bg-amber-950 text-amber-300 border border-amber-800/60 px-2 py-0.5 rounded">
-                {{ summary.cards.count }} ratkennutta
-            </span>
-        </div>
-        <div class="grid grid-cols-4 gap-2 text-center">
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">PnL</div>
-                <div class="text-sm font-bold {% if summary.cards.pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                    {% if summary.cards.pnl >= 0 %}+{% endif %}{{ summary.cards.pnl }} €
-                </div>
-            </div>
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">ROI %</div>
-                <div class="text-sm font-bold {% if summary.cards.roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                    {{ summary.cards.roi_pct }} %
-                </div>
-            </div>
-            <div class="bg-slate-950 p-2 rounded">
-                <div class="text-[10px] text-slate-400">Osumat</div>
-                <div class="text-sm font-bold text-white">{{ summary.cards.win_rate }} %</div>
-            </div>
-            <div class="bg-slate-950 p-2 rounded border border-amber-950" title="Binäärinen Brier Score">
-                <div class="text-[10px] text-amber-400 font-semibold">Brier Score</div>
-                <div class="text-sm font-bold text-amber-300">{{ summary.cards.brier_score }}</div>
-            </div>
-        </div>
+        {% endfor %}
     </div>
 </div>
 
@@ -115,6 +81,7 @@
         <table class="w-full text-left text-xs text-slate-300">
             <thead class="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
                 <tr>
+                    <th class="py-3 px-4">Sarja</th>
                     <th class="py-3 px-4">Markkina</th>
                     <th class="py-3 px-4">Ottelu</th>
                     <th class="py-3 px-4">Valinta</th>
@@ -128,6 +95,7 @@
             <tbody class="divide-y divide-slate-800/60">
                 {% for bet in summary.recent_bets %}
                 <tr class="hover:bg-slate-800/30 transition">
+                    <td class="py-3 px-4 font-bold text-slate-300">{{ bet.league_code }}</td>
                     <td class="py-3 px-4">
                         {% if bet.market_type == '1X2' %}
                             <span class="bg-sky-950 text-sky-400 border border-sky-800 text-[10px] font-bold px-2 py-0.5 rounded">1X2</span>
@@ -157,7 +125,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="py-6 text-center text-slate-500">Ei vielä asetettuja vetoja.</td>
+                    <td colspan="9" class="py-6 text-center text-slate-500">Ei vielä asetettuja vetoja.</td>
                 </tr>
                 {% endfor %}
             </tbody>

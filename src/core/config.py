@@ -1,0 +1,42 @@
+LEAGUES_CONFIG = {
+    "PL": {
+        "name": "Premier League",
+        "country": "England",
+        "football_data_code": "PL",
+        "csv_code": "E0",
+        "odds_key": "soccer_epl",
+        "badge_color": "sky",
+    },
+    "PD": {
+        "name": "La Liga",
+        "country": "Spain",
+        "football_data_code": "PD",
+        "csv_code": "SP1",
+        "odds_key": "soccer_spain_la_liga",
+        "badge_color": "amber",
+    },
+    "BL1": {
+        "name": "Bundesliga",
+        "country": "Germany",
+        "football_data_code": "BL1",
+        "csv_code": "D1",
+        "odds_key": "soccer_germany_bundesliga",
+        "badge_color": "rose",
+    },
+    "SA": {
+        "name": "Serie A",
+        "country": "Italy",
+        "football_data_code": "SA",
+        "csv_code": "I1",
+        "odds_key": "soccer_italy_serie_a",
+        "badge_color": "emerald",
+    },
+    "FL1": {
+        "name": "Ligue 1",
+        "country": "France",
+        "football_data_code": "FL1",
+        "csv_code": "F1",
+        "odds_key": "soccer_france_ligue_one",
+        "badge_color": "indigo",
+    },
+}
