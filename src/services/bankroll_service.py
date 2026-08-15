@@ -11,7 +11,6 @@ from src.models.entities import (
     League,
 )
 
-
 class BankrollService:
 
     @staticmethod
@@ -94,7 +93,6 @@ class BankrollService:
             if bet.market_type == "1X2":
                 won = (bet.outcome == actual_1x2)
             elif bet.market_type.startswith("CARDS_OVER_") and actual_cards is not None:
-                # Erotetaan linja, esim. CARDS_OVER_4_5 -> 4.5
                 line_str = bet.market_type.replace("CARDS_OVER_", "").replace("_", ".")
                 try:
                     line_val = float(line_str)
@@ -128,13 +126,25 @@ class BankrollService:
         total_pnl = sum(float(b.pnl) for b in settled)
         total_won = sum(1 for b in settled if b.status == "WON")
 
-        # Liigakohtainen erittely
+        # Liigakohtainen ja mallikohtainen erittely
         leagues_breakdown = {}
         for code, cfg in LEAGUES_CONFIG.items():
             l_bets = [b for b in settled if b.league_code == code]
-            l_staked = sum(float(b.stake_amount) for b in l_bets)
-            l_pnl = sum(float(b.pnl) for b in l_bets)
-            l_won = sum(1 for b in l_bets if b.status == "WON")
+            
+            # Jaetaan vedot kahteen malliin
+            bets_1x2 = [b for b in l_bets if b.market_type == "1X2"]
+            bets_cards = [b for b in l_bets if b.market_type != "1X2"]
+
+            def calc_stats(bet_list):
+                stk = sum(float(b.stake_amount) for b in bet_list)
+                pnl = sum(float(b.pnl) for b in bet_list)
+                won = sum(1 for b in bet_list if b.status == "WON")
+                roi = round(pnl / stk * 100, 1) if stk > 0 else 0.0
+                win_rate = round(won / len(bet_list) * 100, 1) if bet_list else 0.0
+                return len(bet_list), round(pnl, 2), roi, win_rate
+
+            c_1x2, pnl_1x2, roi_1x2, wr_1x2 = calc_stats(bets_1x2)
+            c_cards, pnl_cards, roi_cards, wr_cards = calc_stats(bets_cards)
 
             # Haetaan liigan 1X2 Brier Score
             avg_brier = (
@@ -148,17 +158,19 @@ class BankrollService:
             leagues_breakdown[code] = {
                 "name": cfg["name"],
                 "badge_color": cfg["badge_color"],
-                "count": len(l_bets),
-                "pnl": round(l_pnl, 2),
-                "roi_pct": (
-                    round(l_pnl / l_staked * 100, 1) if l_staked > 0 else 0.0
-                ),
-                "win_rate": (
-                    round(l_won / len(l_bets) * 100, 1) if l_bets else 0.0
-                ),
-                "brier_score": (
-                    round(float(avg_brier), 4) if avg_brier is not None else "-"
-                ),
+                "1x2": {
+                    "count": c_1x2,
+                    "pnl": pnl_1x2,
+                    "roi_pct": roi_1x2,
+                    "win_rate": wr_1x2,
+                    "brier_score": round(float(avg_brier), 4) if avg_brier is not None else "-"
+                },
+                "cards": {
+                    "count": c_cards,
+                    "pnl": pnl_cards,
+                    "roi_pct": roi_cards,
+                    "win_rate": wr_cards
+                }
             }
 
         return {

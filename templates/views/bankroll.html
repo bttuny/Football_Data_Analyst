@@ -18,16 +18,16 @@
 
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
         <div class="text-xs text-slate-400 font-medium">Kokonais PnL</div>
-        <div class="text-2xl font-bold mt-1 {% if summary.total_pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-            {% if summary.total_pnl >= 0 %}+{% endif %}{{ summary.total_pnl }} €
+        <div class="text-2xl font-bold mt-1 {% if summary.total_pnl > 0 %}text-emerald-400{% elif summary.total_pnl < 0 %}text-rose-400{% else %}text-slate-300{% endif %}">
+            {% if summary.total_pnl > 0 %}+{% endif %}{{ summary.total_pnl }} €
         </div>
         <div class="text-[11px] text-slate-500">Kaikkien sarjojen nettotuotto</div>
     </div>
 
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
         <div class="text-xs text-slate-400 font-medium">Kokonais ROI (Yield)</div>
-        <div class="text-2xl font-bold mt-1 {% if summary.total_roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-            {{ summary.total_roi_pct }} %
+        <div class="text-2xl font-bold mt-1 {% if summary.total_roi_pct > 0 %}text-emerald-400{% elif summary.total_roi_pct < 0 %}text-rose-400{% else %}text-slate-300{% endif %}">
+            {% if summary.total_roi_pct > 0 %}+{% endif %}{{ summary.total_roi_pct }} %
         </div>
         <div class="text-[11px] text-slate-500">Osumat: {{ summary.total_win_rate }}% ({{ summary.settled_bets_count }} kpl)</div>
     </div>
@@ -35,36 +35,72 @@
 
 <!-- Liigakohtainen Suorituskykytaulukko -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-8 shadow-lg">
-    <h2 class="font-bold text-white text-base mb-4">🏆 Sarjakohtainen mallien tehokkuus & Brier Score</h2>
+    <h2 class="font-bold text-white text-base mb-4">🏆 Sarjakohtainen mallien tehokkuus</h2>
     <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
         {% for code, data in summary.leagues_breakdown.items() %}
-        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
-            <div class="text-xs font-bold text-white mb-2 flex justify-between items-center">
+        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 flex flex-col">
+            
+            <!-- Otsikko -->
+            <div class="text-xs font-bold text-white mb-3 flex justify-between items-center border-b border-slate-800/80 pb-2">
                 <span>{{ data.name }}</span>
-                <span class="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">{{ data.count }} vetoa</span>
             </div>
-            <div class="space-y-1 text-xs">
-                <div class="flex justify-between">
-                    <span class="text-slate-400">PnL:</span>
-                    <strong class="{% if data.pnl >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                        {% if data.pnl >= 0 %}+{% endif %}{{ data.pnl }} €
-                    </strong>
+
+            <!-- 1X2 Malli -->
+            <div class="mb-3">
+                <div class="text-[10px] text-sky-400 font-bold uppercase tracking-wider mb-1 flex justify-between">
+                    <span>1X2 Malli</span>
+                    <span class="text-slate-500">{{ data['1x2'].count }} vetoa</span>
                 </div>
-                <div class="flex justify-between">
-                    <span class="text-slate-400">ROI:</span>
-                    <strong class="{% if data.roi_pct >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
-                        {{ data.roi_pct }} %
-                    </strong>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-slate-400">Osumat:</span>
-                    <strong class="text-white">{{ data.win_rate }} %</strong>
-                </div>
-                <div class="flex justify-between pt-1 border-t border-slate-900">
-                    <span class="text-sky-400 font-medium">Brier:</span>
-                    <strong class="text-sky-300">{{ data.brier_score }}</strong>
+                <div class="space-y-1 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">PnL:</span>
+                        <strong class="{% if data['1x2'].pnl > 0 %}text-emerald-400{% elif data['1x2'].pnl < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                            {% if data['1x2'].pnl > 0 %}+{% endif %}{{ data['1x2'].pnl }} €
+                        </strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">ROI:</span>
+                        <strong class="{% if data['1x2'].roi_pct > 0 %}text-emerald-400{% elif data['1x2'].roi_pct < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                            {% if data['1x2'].roi_pct > 0 %}+{% endif %}{{ data['1x2'].roi_pct }} %
+                        </strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Osumat:</span>
+                        <strong class="text-white">{{ data['1x2'].win_rate }} %</strong>
+                    </div>
+                    <div class="flex justify-between pt-1 border-t border-slate-900/50 mt-1">
+                        <span class="text-sky-500">Brier:</span>
+                        <strong class="text-sky-400">{{ data['1x2'].brier_score }}</strong>
+                    </div>
                 </div>
             </div>
+
+            <!-- Korttimalli -->
+            <div class="pt-2 border-t border-slate-800">
+                <div class="text-[10px] text-amber-400 font-bold uppercase tracking-wider mb-1 flex justify-between">
+                    <span>Korttimalli</span>
+                    <span class="text-slate-500">{{ data.cards.count }} vetoa</span>
+                </div>
+                <div class="space-y-1 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">PnL:</span>
+                        <strong class="{% if data.cards.pnl > 0 %}text-emerald-400{% elif data.cards.pnl < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                            {% if data.cards.pnl > 0 %}+{% endif %}{{ data.cards.pnl }} €
+                        </strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">ROI:</span>
+                        <strong class="{% if data.cards.roi_pct > 0 %}text-emerald-400{% elif data.cards.roi_pct < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                            {% if data.cards.roi_pct > 0 %}+{% endif %}{{ data.cards.roi_pct }} %
+                        </strong>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">Osumat:</span>
+                        <strong class="text-white">{{ data.cards.win_rate }} %</strong>
+                    </div>
+                </div>
+            </div>
+
         </div>
         {% endfor %}
     </div>
