@@ -5,21 +5,17 @@ import numpy as np
 import pandas as pd
 from scipy.stats import poisson
 
-
 def clean_name(text: str) -> str:
     if not text or pd.isna(text):
         return ""
     
-    # Poistetaan aksentit (esim. Espanyol vs Español, Atlético vs Atletico)
     orig = unicodedata.normalize("NFKD", str(text))
     orig = "".join(c for c in orig if not unicodedata.combining(c)).lower().strip()
     
-    # Yleisten nimierojen manuaaliset tasaukset API:n ja CSV:n välillä
     orig = orig.replace("ath madrid", "atletico madrid")
     orig = orig.replace("espanyol", "espanol")
     
     n = orig
-    # Poistetaan vain aivan selvät liite- ja taustasanat
     for noise in [
         "fc", "cf", "rcd", "rc", "ca", "cd", "de", "balompie",
         "futbol", "club", "afc", "deportivo", "sad",
@@ -29,11 +25,9 @@ def clean_name(text: str) -> str:
         
     n = re.sub(r"\s+", " ", n).strip()
     
-    # Jos siivous teki nimestä liian lyhyen (tai tyhjän), palautetaan alkuperäinen
     if len(n) < 3:
         return orig
     return n
-
 
 class PremierLeagueCardsModel:
 
@@ -46,22 +40,56 @@ class PremierLeagueCardsModel:
         if historical_cards_df is None or historical_cards_df.empty:
             return
 
-        total_matches = len(historical_cards_df)
-        total_cards = historical_cards_df["total_cards"].sum()
-        if total_matches > 0:
-            self.league_avg_cards = float(total_cards / total_matches)
-
+        # Tehdään heti kopio, jotta vältetään fragmentaatio
         df = historical_cards_df.copy()
+
+        # 1. AIKAPAINOTUS (Exponential Time Decay)
+        if "Date" in df.columns:
+            df["parsed_date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+            max_date = df["parsed_date"].max()
+            
+            if pd.isna(max_date):
+                df["weight"] = 1.0
+            else:
+                decay_rate = np.log(2) / 365.0  # 50% painoarvo laskee 365 päivässä
+                days_ago = (max_date - df["parsed_date"]).dt.days.fillna(0)
+                days_ago = np.clip(days_ago, 0, None)
+                df["weight"] = np.exp(-decay_rate * days_ago)
+        else:
+            df["weight"] = 1.0
+
+        # 2. Liigan painotettu korttikeskiarvo
+        weight_sum = df["weight"].sum()
+        if weight_sum > 0:
+            self.league_avg_cards = float(np.average(df["total_cards"], weights=df["weight"]))
+        else:
+            total_matches = len(df)
+            if total_matches > 0:
+                self.league_avg_cards = float(df["total_cards"].sum() / total_matches)
+
         df["HomeClean"] = df["HomeTeam"].apply(clean_name)
         df["AwayClean"] = df["AwayTeam"].apply(clean_name)
         df["RefClean"] = df["Referee"].apply(clean_name)
 
-        # Tuomarikertoimet Bayes-kutistuksella (k=8)
-        valid_refs = df[~df["RefClean"].isin(["unknown", "nan", ""])]
-        ref_stats = (
-            valid_refs.groupby("RefClean")
-            .agg(matches=("total_cards", "count"), cards=("total_cards", "mean"))
-            .reset_index()
+        # Lasketaan valmiiksi painotetut summat vektoreina (Poistaa PerformanceWarningin!)
+        df["weighted_total"] = df["total_cards"] * df["weight"]
+        df["weighted_home"] = df["home_cards"] * df["weight"]
+        df["weighted_away"] = df["away_cards"] * df["weight"]
+
+        # 3. Tuomarikertoimet (Painotettu keskiarvo + Bayes-kutistus k=8)
+        valid_refs = df[~df["RefClean"].isin(["unknown", "nan", ""])].copy()
+        
+        # Ryhmitellään ja lasketaan suoraan aggregoidut summat vektoreina (TÄSSÄ EI ENÄÄ OLE APPLY-FUNKTIOTA)
+        ref_stats = valid_refs.groupby("RefClean").agg(
+            matches=("total_cards", "count"),
+            w_sum=("weight", "sum"),
+            wt_sum=("weighted_total", "sum")
+        ).reset_index()
+
+        ref_stats["cards"] = np.where(
+            ref_stats["w_sum"] > 0,
+            ref_stats["wt_sum"] / ref_stats["w_sum"],
+            self.league_avg_cards
         )
 
         k = 8.0
@@ -69,18 +97,25 @@ class PremierLeagueCardsModel:
             ref = row["RefClean"]
             n = row["matches"]
             mean_c = row["cards"]
-            shrunk_factor = (n * (mean_c / self.league_avg_cards) + k * 1.0) / (
-                n + k
-            )
+            shrunk_factor = (n * (mean_c / self.league_avg_cards) + k * 1.0) / (n + k)
             self.referee_factors[ref] = float(shrunk_factor)
 
-        # Joukkuekohtaiset korttikertoimet
-        home_cards = df.groupby("HomeClean")["home_cards"].mean()
-        away_cards = df.groupby("AwayClean")["away_cards"].mean()
+        # 4. Joukkuekertoimet (Painotettu keskiarvo vektoreilla)
+        home_stats = df.groupby("HomeClean").agg(w_sum=("weight", "sum"), wt_sum=("weighted_home", "sum"))
+        home_cards = pd.Series(
+            np.where(home_stats["w_sum"] > 0, home_stats["wt_sum"] / home_stats["w_sum"], self.league_avg_cards / 2.0),
+            index=home_stats.index
+        )
+
+        away_stats = df.groupby("AwayClean").agg(w_sum=("weight", "sum"), wt_sum=("weighted_away", "sum"))
+        away_cards = pd.Series(
+            np.where(away_stats["w_sum"] > 0, away_stats["wt_sum"] / away_stats["w_sum"], self.league_avg_cards / 2.0),
+            index=away_stats.index
+        )
+        
         all_teams = set(home_cards.index).union(set(away_cards.index))
 
         for t in all_teams:
-            # Otetaan huomioon pelkät kotipelit ja vieraspelit
             h_c = home_cards.get(t, self.league_avg_cards / 2.0)
             a_c = away_cards.get(t, self.league_avg_cards / 2.0)
             team_avg = h_c + a_c
@@ -92,30 +127,20 @@ class PremierLeagueCardsModel:
         h_clean = clean_name(home_team)
         a_clean = clean_name(away_team)
 
-        # Joukkueosumien haku sanakirjasta turvallisesti (len > 2 estää "" osumat)
-        h_key = next(
-            (k for k in self.team_card_factors if len(k) > 2 and (k in h_clean or h_clean in k)),
-            None,
-        )
-        a_key = next(
-            (k for k in self.team_card_factors if len(k) > 2 and (k in a_clean or a_clean in k)),
-            None,
-        )
+        # Joukkueosumien haku sanakirjasta
+        h_key = next((k for k in self.team_card_factors if len(k) > 2 and (k in h_clean or h_clean in k)), None)
+        a_key = next((k for k in self.team_card_factors if len(k) > 2 and (k in a_clean or a_clean in k)), None)
 
         h_factor = self.team_card_factors.get(h_key, 1.0) if h_key else 1.0
         a_factor = self.team_card_factors.get(a_key, 1.0) if a_key else 1.0
         teams_factor = (h_factor + a_factor) / 2.0
 
         ref_factor = 1.0
-        ref_display = "Liigan keskiarvo"
+        ref_display = "Joukkueiden KA (1.00x)"
         if referee:
             ref_clean = clean_name(referee)
             matched_ref = next(
-                (
-                    k
-                    for k in self.referee_factors
-                    if len(k) > 2 and (k in ref_clean or ref_clean in k)
-                ),
+                (k for k in self.referee_factors if len(k) > 2 and (k in ref_clean or ref_clean in k)),
                 None,
             )
             if matched_ref:
@@ -131,9 +156,7 @@ class PremierLeagueCardsModel:
         for line in [2.5, 3.5, 4.5, 5.5, 6.5]:
             k = int(line)
             prob_over = 1.0 - float(poisson.cdf(k, lambda_cards))
-            fair_odds = (
-                round(1.0 / prob_over, 2) if prob_over > 0.01 else 99.0
-            )
+            fair_odds = round(1.0 / prob_over, 2) if prob_over > 0.01 else 99.0
             key = f"over_{str(line).replace('.', '_')}"
             lines[key] = {
                 "line": line,
