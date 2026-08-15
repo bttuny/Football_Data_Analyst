@@ -1,17 +1,16 @@
+<!-- templates/components/match_card.html -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col justify-between hover:border-slate-700 transition">
     <div>
-        <!-- Liigan nimi ja ottelun alkamisaika -->
+        <!-- Liiga ja Aika -->
         <div class="flex items-center justify-between text-xs text-slate-400 mb-2 border-b border-slate-800/80 pb-2">
             <span class="font-bold text-sky-400 uppercase tracking-wider text-[11px]">{{ item.league_name }}</span>
             <span class="text-slate-400 font-mono text-[11px]">🕒 {{ item.match_datetime }}</span>
         </div>
 
-        <!-- Joukkueet -->
         <h3 class="text-base font-bold text-white mb-1">
             {{ item.home_team }} <span class="text-slate-500 font-normal">vs</span> {{ item.away_team }}
         </h3>
         
-        <!-- xG Ennuste -->
         <div class="text-xs text-sky-400 font-semibold mb-4">
             xG Ennuste: {{ item.expected_goals.home }} – {{ item.expected_goals.away }}
         </div>
@@ -21,7 +20,7 @@
             <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">1X2 Arvovedot</div>
             <div class="grid grid-cols-3 gap-2 text-center">
                 {% for val in item.value_analysis %}
-                {% set p = val.get('prob') if val.get('prob') is not none else (val.get('probability') if val.get('probability') is not none else (val.get('model_prob') if val.get('model_prob') is not none else 0)) %}
+                {% set p = val.get('prob') or val.get('probability') or val.get('model_prob') or 0 %}
                 <div class="bg-slate-950/80 border {% if val.is_value %}border-emerald-500/40 bg-emerald-950/20{% else %}border-slate-800{% endif %} rounded-lg p-2 flex flex-col justify-between">
                     <div class="text-[11px] text-slate-400">
                         {{ val.outcome }} ({{ (p * 100) | round | int }}%)
@@ -43,39 +42,55 @@
         </div>
     </div>
 
-    <!-- Korttianalyysi & 5 Dynaamista Linjanappia -->
-    {% if item.cards_analysis and item.cards_analysis.lines %}
+    <!-- Korttimarkkinat ja Tuomarivalitsin -->
+    {% if item.cards_analysis %}
     <div class="bg-slate-950/70 border border-slate-800 rounded-lg p-3 text-xs mt-2" id="card-box-{{ item.match_id }}">
-        <div class="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-            <span>🟨 Korttiodote ({{ item.cards_analysis.expected_total_cards }} kpl)</span>
-            <span class="text-slate-400 font-normal">Ref: {{ item.cards_analysis.referee }}</span>
+        
+        <!-- Yläpalkki: Lambda ja Tuomari -->
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">🟨 Odotus: <strong id="disp-lambda-{{ item.match_id }}" class="text-amber-300">{{ item.cards_analysis.expected_total_cards }}</strong></span>
+            
+            <div class="flex items-center gap-1">
+                <span class="text-[10px] text-slate-400">Tuomari:</span>
+                <select id="ref-select-{{ item.match_id }}"
+                        data-match="{{ item.match_id }}"
+                        data-base-lambda="{{ item.cards_analysis.base_lambda }}"
+                        onchange="onRefereeSelectChange(this)"
+                        class="bg-slate-900 border border-slate-700 text-amber-300 rounded px-1.5 py-0.5 text-[10px] max-w-[140px] focus:outline-none focus:border-amber-400 cursor-pointer">
+                    <option value="1.0" selected>Joukkueiden KA (1.00x)</option>
+                    {% if referees_by_league and item.league_code in referees_by_league %}
+                        {% for ref in referees_by_league[item.league_code] %}
+                        <option value="{{ ref.factor }}">{{ ref.name }} ({{ ref.factor }}x)</option>
+                        {% endfor %}
+                    {% endif %}
+                </select>
+            </div>
         </div>
 
-        <!-- 5 Linjanappia -->
+        <!-- 5 Linjapainiketta -->
         <div class="grid grid-cols-5 gap-1 mb-2 text-center">
             {% for key, line_data in item.cards_analysis.lines.items() %}
-            {% set is_default = (line_data.line == 4.5) %}
             <button type="button"
+                    id="btn-line-{{ item.match_id }}-{{ line_data.line }}"
                     data-match="{{ item.match_id }}"
                     data-line="{{ line_data.line }}"
                     data-prob="{{ line_data.prob }}"
                     data-probpct="{{ line_data.prob_pct }}"
                     data-odds="{{ line_data.fair_odds }}"
                     onclick="handleLineClick(this)"
-                    class="line-btn-{{ item.match_id }} py-1 px-0.5 rounded text-[10px] transition border cursor-pointer {% if is_default %}border-amber-400 bg-amber-400 text-slate-950 font-bold ring-2 ring-amber-400/40{% else %}border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700{% endif %}">
+                    class="line-btn-{{ item.match_id }} py-1 px-0.5 rounded text-[10px] transition border cursor-pointer {% if line_data.line == 4.5 %}border-amber-400 bg-amber-400 text-slate-950 font-bold ring-2 ring-amber-400/40{% else %}border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700{% endif %}">
                 <div class="font-bold">> {{ line_data.line }}</div>
-                <div class="text-[9px] {% if is_default %}text-slate-900 font-semibold{% else %}text-slate-500{% endif %}">{{ line_data.fair_odds }}</div>
+                <div class="text-[9px] odds-subtext {% if line_data.line == 4.5 %}text-slate-950 font-semibold{% else %}text-slate-500{% endif %}">{{ line_data.fair_odds }}</div>
             </button>
             {% endfor %}
         </div>
 
-        <!-- Tilapalkki -->
+        <!-- Valinnan tiedot ja lomake -->
         <div class="flex justify-between items-center bg-slate-900 px-2 py-1 rounded border border-slate-800 mb-2 text-[10.5px]">
             <span class="text-slate-400">Valittu: <strong class="text-amber-300" id="label-line-{{ item.match_id }}">Yli 4.5 korttia</strong></span>
             <span class="text-slate-400">Tn: <strong class="text-white" id="label-prob-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.prob_pct }}%</strong> (Reilu: <span class="text-amber-300 font-mono" id="label-odds-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.fair_odds }}</span>)</span>
         </div>
 
-        <!-- Vedonlyöntilomake -->
         <form action="/api/v1/bets/cards" method="POST" class="flex items-center gap-2 pt-1 border-t border-slate-800/80">
             <input type="hidden" name="match_id" value="{{ item.match_id }}">
             <input type="hidden" name="match_name" value="{{ item.home_team }} vs {{ item.away_team }}">
@@ -83,7 +98,7 @@
             <input type="hidden" id="input-line-{{ item.match_id }}" name="selected_line" value="4.5">
             <input type="hidden" id="input-prob-{{ item.match_id }}" name="line_prob" value="{{ item.cards_analysis.lines.over_4_5.prob }}">
             
-            <input type="number" step="0.01" name="user_odds" placeholder="Bookkerin kerroin..." required
+            <input type="number" step="0.01" name="user_odds" placeholder="Käytettävä kerroin..." required
                    class="w-full bg-slate-900 border border-slate-700 text-white rounded px-2.5 py-1 text-xs focus:outline-none focus:border-amber-400">
             
             <button type="submit" class="bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold px-3 py-1 rounded text-xs whitespace-nowrap transition cursor-pointer">
@@ -95,6 +110,53 @@
 </div>
 
 <script>
+// Poisson-kertymafunktio linjojen todennäköisyyksien laskemiseen selaimessa
+function poissonCdf(k, lambda) {
+    let sum = 0;
+    for (let i = 0; i <= k; i++) {
+        let term = Math.exp(-lambda);
+        for (let j = 1; j <= i; j++) { term *= (lambda / j); }
+        sum += term;
+    }
+    return sum;
+}
+
+// Päivittää kertoimet kun tuomari valitaan
+function onRefereeSelectChange(selectElem) {
+    const matchId = selectElem.dataset.match;
+    const baseLambda = parseFloat(selectElem.dataset.baseLambda) || 4.4;
+    const refFactor = parseFloat(selectElem.value) || 1.0;
+
+    // Uusi odotusarvo (rajoitetaan 2.0 - 9.5 väliin realismia varten)
+    const newLambda = Math.max(2.0, Math.min(9.5, +(baseLambda * refFactor).toFixed(2)));
+    document.getElementById('disp-lambda-' + matchId).innerText = newLambda;
+
+    const lines = [2.5, 3.5, 4.5, 5.5, 6.5];
+    const currentSelectedLine = +document.getElementById('input-line-' + matchId).value;
+
+    lines.forEach(line => {
+        const k = Math.floor(line);
+        const probOver = +(1.0 - poissonCdf(k, newLambda)).toFixed(3);
+        const probPct = Math.round(probOver * 100);
+        const fairOdds = probOver > 0.01 ? +(1.0 / probOver).toFixed(2) : 99.0;
+        
+        const btn = document.getElementById('btn-line-' + matchId + '-' + line);
+        if (btn) {
+            btn.dataset.prob = probOver;
+            btn.dataset.probpct = probPct;
+            btn.dataset.odds = fairOdds;
+            btn.querySelector('.odds-subtext').innerText = fairOdds;
+            
+            if (line === currentSelectedLine) {
+                document.getElementById('label-prob-' + matchId).innerText = probPct + '%';
+                document.getElementById('label-odds-' + matchId).innerText = fairOdds;
+                document.getElementById('input-prob-' + matchId).value = probOver;
+            }
+        }
+    });
+}
+
+// Käsittelee korttilinjan napin painalluksen
 function handleLineClick(btn) {
     const matchId = btn.dataset.match;
     const line = btn.dataset.line;
@@ -102,26 +164,21 @@ function handleLineClick(btn) {
     const probPct = btn.dataset.probpct;
     const fairOdds = btn.dataset.odds;
 
+    // Nollaa muiden nappien tyylit
     document.querySelectorAll('.line-btn-' + matchId).forEach(b => {
         b.className = 'line-btn-' + matchId + ' py-1 px-0.5 rounded text-[10px] transition border border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 cursor-pointer';
-        const sub = b.querySelectorAll('div')[1];
-        if (sub) sub.className = 'text-[9px] text-slate-500';
+        b.querySelector('.odds-subtext').className = 'text-[9px] odds-subtext text-slate-500';
     });
 
+    // Aktivoi valittu nappi
     btn.className = 'line-btn-' + matchId + ' py-1 px-0.5 rounded text-[10px] transition border border-amber-400 bg-amber-400 text-slate-950 font-bold ring-2 ring-amber-400/40 cursor-pointer';
-    const activeSub = btn.querySelectorAll('div')[1];
-    if (activeSub) activeSub.className = 'text-[9px] text-slate-900 font-semibold';
+    btn.querySelector('.odds-subtext').className = 'text-[9px] odds-subtext text-slate-950 font-semibold';
 
-    const lblLine = document.getElementById('label-line-' + matchId);
-    const lblProb = document.getElementById('label-prob-' + matchId);
-    const lblOdds = document.getElementById('label-odds-' + matchId);
-    const inLine = document.getElementById('input-line-' + matchId);
-    const inProb = document.getElementById('input-prob-' + matchId);
-
-    if (lblLine) lblLine.innerText = 'Yli ' + line + ' korttia';
-    if (lblProb) lblProb.innerText = probPct + '%';
-    if (lblOdds) lblOdds.innerText = fairOdds;
-    if (inLine) inLine.value = line;
-    if (inProb) inProb.value = prob;
+    // Päivitä tekstit ja lomakkeen piilokentät
+    document.getElementById('label-line-' + matchId).innerText = 'Yli ' + line + ' korttia';
+    document.getElementById('label-prob-' + matchId).innerText = probPct + '%';
+    document.getElementById('label-odds-' + matchId).innerText = fairOdds;
+    document.getElementById('input-line-' + matchId).value = line;
+    document.getElementById('input-prob-' + matchId).value = prob;
 }
 </script>

@@ -1,4 +1,5 @@
 # main.py
+import os
 from datetime import datetime
 import pandas as pd
 from src.core.config import LEAGUES_CONFIG
@@ -10,21 +11,32 @@ from src.models.entities import (
     PredictionEvaluation,
 )
 from src.ingestion.football_data import FootballDataFetcher
+from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.poisson_dixon import PremierLeaguePoissonModel
 from src.quant.metrics import calculate_brier_score, calculate_log_loss
 from src.services.bankroll_service import BankrollService
-
 
 def run_pipeline():
     print("=== TOP 5 LEAGUES QUANT ANALYST & BANKROLL PIPELINE ===")
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     fetcher = FootballDataFetcher()
+    cards_fetcher = CardsDataFetcher()
+    
+    # Varmista, että data-kansio on olemassa paikallista välimuistia varten
+    os.makedirs("data", exist_ok=True)
 
     for code, conf in LEAGUES_CONFIG.items():
         print(f"\n--- Käsitellään {conf['name']} ({code}) ---")
 
-        # 1. Varmistetaan liiga tietokannassa
+        # 1. Lataa ja tallenna kortti- ja tuomaridata paikallisesti päivittäisessä ajossa
+        print("Ladataan kortti- ja tuomaridata...")
+        cards_df = cards_fetcher.fetch_cards_history(league_csv=conf["csv_code"])
+        if not cards_df.empty:
+            cards_df.to_csv(f"data/{code}_cards.csv", index=False)
+            print(f"✅ Korttidata ({len(cards_df)} ottelua) tallennettu cacheen.")
+
+        # 2. Varmistetaan liiga tietokannassa
         league_obj = db.query(League).filter(League.code == code).first()
         if not league_obj:
             league_obj = League(
@@ -34,7 +46,7 @@ def run_pipeline():
             db.commit()
             db.refresh(league_obj)
 
-        # 2. Haetaan ottelut
+        # 3. Haetaan ottelut ja maalidatat Dixon-Colesia varten
         df_prev, _ = fetcher.fetch_matches(
             competition_code=conf["football_data_code"], season=2025
         )
@@ -42,7 +54,7 @@ def run_pipeline():
             competition_code=conf["football_data_code"], season=2026
         )
 
-        # 3. Ratkaistaan pelatut pelit ja evaluoidaan
+        # 4. Ratkaistaan pelatut pelit ja evaluoidaan
         locked_matches = (
             db.query(Match)
             .filter(
@@ -58,9 +70,7 @@ def run_pipeline():
                 ]
                 if not m_data.empty:
                     row = m_data.iloc[0]
-                    act_h, act_a = int(row["home_goals"]), int(
-                        row["away_goals"]
-                    )
+                    act_h, act_a = int(row["home_goals"]), int(row["away_goals"])
                     match.actual_home_goals = act_h
                     match.actual_away_goals = act_a
                     match.status = "FINISHED"
@@ -91,20 +101,10 @@ def run_pipeline():
                             act_a,
                         )
                         pred_out = (
-                            "H"
-                            if pred.prob_home_win
-                            > max(pred.prob_draw, pred.prob_away_win)
-                            else (
-                                "D"
-                                if pred.prob_draw > pred.prob_away_win
-                                else "A"
-                            )
+                            "H" if pred.prob_home_win > max(pred.prob_draw, pred.prob_away_win)
+                            else ("D" if pred.prob_draw > pred.prob_away_win else "A")
                         )
-                        act_out = (
-                            "H"
-                            if act_h > act_a
-                            else ("D" if act_h == act_a else "A")
-                        )
+                        act_out = "H" if act_h > act_a else ("D" if act_h == act_a else "A")
 
                         eval_obj = PredictionEvaluation(
                             match_id=match.match_id,
@@ -116,12 +116,12 @@ def run_pipeline():
                         db.add(eval_obj)
             db.commit()
 
-        # 4. Koulutetaan sarjakohtainen Dixon-Coles
+        # 5. Koulutetaan sarjakohtainen Dixon-Coles
         training_data = pd.concat([df_prev, df_curr], ignore_index=True)
         model = PremierLeaguePoissonModel()
         model.fit(training_data)
 
-        # 5. Ennustetaan tulevat
+        # 6. Ennustetaan tulevat
         for m_data in upcoming:
             h, a = m_data["home_team"], m_data["away_team"]
             match_obj = (
@@ -169,7 +169,6 @@ def run_pipeline():
 
     db.close()
     print("\n=== KAIKKI TOP 5 LIIGAT KÄSITELTY ONNISTUNEESTI ===")
-
 
 if __name__ == "__main__":
     run_pipeline()
