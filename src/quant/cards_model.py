@@ -7,26 +7,32 @@ from scipy.stats import poisson
 
 
 def clean_name(text: str) -> str:
-    if not text:
+    if not text or pd.isna(text):
         return ""
-    n = unicodedata.normalize("NFKD", str(text))
-    n = "".join(c for c in n if not unicodedata.combining(c)).lower().strip()
+    
+    # Poistetaan aksentit (esim. Espanyol vs Español, Atlético vs Atletico)
+    orig = unicodedata.normalize("NFKD", str(text))
+    orig = "".join(c for c in orig if not unicodedata.combining(c)).lower().strip()
+    
+    # Yleisten nimierojen manuaaliset tasaukset API:n ja CSV:n välillä
+    orig = orig.replace("ath madrid", "atletico madrid")
+    orig = orig.replace("espanyol", "espanol")
+    
+    n = orig
+    # Poistetaan vain aivan selvät liite- ja taustasanat
     for noise in [
-        "fc",
-        "cf",
-        "rcd",
-        "rc",
-        "ca",
-        "cd",
-        "de",
-        "balompie",
-        "futbol",
-        "club",
-        "afc",
-        "madrid",
+        "fc", "cf", "rcd", "rc", "ca", "cd", "de", "balompie",
+        "futbol", "club", "afc", "deportivo", "sad",
+        "ac", "as", "ogc", "stade", "sc"
     ]:
         n = re.sub(rf"\b{noise}\b", "", n).strip()
-    return re.sub(r"\s+", " ", n).strip()
+        
+    n = re.sub(r"\s+", " ", n).strip()
+    
+    # Jos siivous teki nimestä liian lyhyen (tai tyhjän), palautetaan alkuperäinen
+    if len(n) < 3:
+        return orig
+    return n
 
 
 class PremierLeagueCardsModel:
@@ -37,7 +43,7 @@ class PremierLeagueCardsModel:
         self.team_card_factors = {}
 
     def fit(self, historical_cards_df: pd.DataFrame):
-        if historical_cards_df.empty:
+        if historical_cards_df is None or historical_cards_df.empty:
             return
 
         total_matches = len(historical_cards_df)
@@ -50,9 +56,10 @@ class PremierLeagueCardsModel:
         df["AwayClean"] = df["AwayTeam"].apply(clean_name)
         df["RefClean"] = df["Referee"].apply(clean_name)
 
-        # Tuomarikertoimet Bayes-kutistuksella
+        # Tuomarikertoimet Bayes-kutistuksella (k=8)
+        valid_refs = df[~df["RefClean"].isin(["unknown", "nan", ""])]
         ref_stats = (
-            df.groupby("RefClean")
+            valid_refs.groupby("RefClean")
             .agg(matches=("total_cards", "count"), cards=("total_cards", "mean"))
             .reset_index()
         )
@@ -67,12 +74,13 @@ class PremierLeagueCardsModel:
             )
             self.referee_factors[ref] = float(shrunk_factor)
 
-        # Joukkuekertoimet
+        # Joukkuekohtaiset korttikertoimet
         home_cards = df.groupby("HomeClean")["home_cards"].mean()
         away_cards = df.groupby("AwayClean")["away_cards"].mean()
         all_teams = set(home_cards.index).union(set(away_cards.index))
 
         for t in all_teams:
+            # Otetaan huomioon pelkät kotipelit ja vieraspelit
             h_c = home_cards.get(t, self.league_avg_cards / 2.0)
             a_c = away_cards.get(t, self.league_avg_cards / 2.0)
             team_avg = h_c + a_c
@@ -84,18 +92,18 @@ class PremierLeagueCardsModel:
         h_clean = clean_name(home_team)
         a_clean = clean_name(away_team)
 
-        # Etsitään lähin joukkueosuma
+        # Joukkueosumien haku sanakirjasta turvallisesti (len > 2 estää "" osumat)
         h_key = next(
-            (k for k in self.team_card_factors if k in h_clean or h_clean in k),
-            h_clean,
+            (k for k in self.team_card_factors if len(k) > 2 and (k in h_clean or h_clean in k)),
+            None,
         )
         a_key = next(
-            (k for k in self.team_card_factors if k in a_clean or a_clean in k),
-            a_clean,
+            (k for k in self.team_card_factors if len(k) > 2 and (k in a_clean or a_clean in k)),
+            None,
         )
 
-        h_factor = self.team_card_factors.get(h_key, 1.0)
-        a_factor = self.team_card_factors.get(a_key, 1.0)
+        h_factor = self.team_card_factors.get(h_key, 1.0) if h_key else 1.0
+        a_factor = self.team_card_factors.get(a_key, 1.0) if a_key else 1.0
         teams_factor = (h_factor + a_factor) / 2.0
 
         ref_factor = 1.0
@@ -106,7 +114,7 @@ class PremierLeagueCardsModel:
                 (
                     k
                     for k in self.referee_factors
-                    if k in ref_clean or ref_clean in k
+                    if len(k) > 2 and (k in ref_clean or ref_clean in k)
                 ),
                 None,
             )
@@ -119,7 +127,6 @@ class PremierLeagueCardsModel:
         lambda_cards = self.league_avg_cards * teams_factor * ref_factor
         lambda_cards = max(2.0, min(9.5, lambda_cards))
 
-        # Lasketaan 5 linjaa: 2.5, 3.5, 4.5, 5.5, 6.5
         lines = {}
         for line in [2.5, 3.5, 4.5, 5.5, 6.5]:
             k = int(line)
