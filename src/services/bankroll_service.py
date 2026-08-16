@@ -121,24 +121,61 @@ class BankrollService:
     @staticmethod
     def get_portfolio_summary(db: Session) -> dict:
         bankroll = BankrollService.get_or_create_bankroll(db)
-        bets = (
-            db.query(PaperBet)
-            .order_by(PaperBet.placed_at.desc())
-            .limit(100)
+        
+        from zoneinfo import ZoneInfo
+        from datetime import timezone
+        
+        # 1. Avoimet vedot, yhdistettynä Match-tauluun jotta saadaan päivämäärä
+        pending_results = (
+            db.query(PaperBet, Match.match_datetime)
+            .join(Match, Match.match_id == PaperBet.match_id)
+            .filter(PaperBet.status == "PENDING")
+            .order_by(Match.match_datetime.asc())
             .all()
         )
-        settled = [b for b in bets if b.status in ["WON", "LOST"]]
+        
+        pending_bets = []
+        for bet, m_date in pending_results:
+            if m_date:
+                dt_utc = m_date if m_date.tzinfo else m_date.replace(tzinfo=timezone.utc)
+                bet.match_date_str = dt_utc.astimezone(ZoneInfo("Europe/Helsinki")).strftime("%d.%m. %H:%M")
+            else:
+                bet.match_date_str = "-"
+            pending_bets.append(bet)
+            
+        # 2. Kaikki ratkaistut vedot ja niiden päivämäärät
+        settled_results = (
+            db.query(PaperBet, Match.match_datetime)
+            .join(Match, Match.match_id == PaperBet.match_id)
+            .filter(PaperBet.status.in_(["WON", "LOST"]))
+            .all()
+        )
+        
+        all_settled = []
+        for bet, m_date in settled_results:
+            if m_date:
+                dt_utc = m_date if m_date.tzinfo else m_date.replace(tzinfo=timezone.utc)
+                bet.match_date_str = dt_utc.astimezone(ZoneInfo("Europe/Helsinki")).strftime("%d.%m. %H:%M")
+            else:
+                bet.match_date_str = "-"
+            all_settled.append(bet)
+            
+        # 3. Ratkaistujen vetojen historia UI:ta varten
+        settled_history = sorted(
+            all_settled, 
+            key=lambda b: b.settled_at if b.settled_at else b.placed_at, 
+            reverse=True
+        )[:100]
 
-        total_staked = sum(float(b.stake_amount) for b in settled)
-        total_pnl = sum(float(b.pnl) for b in settled)
-        total_won = sum(1 for b in settled if b.status == "WON")
+        total_staked = sum(float(b.stake_amount) for b in all_settled)
+        total_pnl = sum(float(b.pnl) for b in all_settled)
+        total_won = sum(1 for b in all_settled if b.status == "WON")
 
         # Liigakohtainen ja mallikohtainen erittely
         leagues_breakdown = {}
         for code, cfg in LEAGUES_CONFIG.items():
-            l_bets = [b for b in settled if b.league_code == code]
+            l_bets = [b for b in all_settled if b.league_code == code]
             
-            # Jaetaan vedot kahteen malliin
             bets_1x2 = [b for b in l_bets if b.market_type == "1X2"]
             bets_cards = [b for b in l_bets if b.market_type != "1X2"]
 
@@ -190,12 +227,11 @@ class BankrollService:
                 else 0.0
             ),
             "total_win_rate": (
-                round(total_won / len(settled) * 100, 1) if settled else 0.0
+                round(total_won / len(all_settled) * 100, 1) if all_settled else 0.0
             ),
             "leagues_breakdown": leagues_breakdown,
-            "settled_bets_count": len(settled),
-            "pending_bets_count": sum(
-                1 for b in bets if b.status == "PENDING"
-            ),
-            "recent_bets": bets,
+            "settled_bets_count": len(all_settled),
+            "pending_bets_count": len(pending_bets),
+            "pending_bets": pending_bets,
+            "settled_history": settled_history,
         }

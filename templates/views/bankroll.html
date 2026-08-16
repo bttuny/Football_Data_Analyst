@@ -106,18 +106,26 @@
     </div>
 </div>
 
-<!-- Vetotaulukko -->
+<!-- Vetotaulukko Toggle-napeilla -->
 <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-    <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center">
-        <h2 class="font-bold text-white text-base">Kaikki asetetut arvovedot</h2>
-        <span class="text-xs bg-slate-800 text-slate-300 py-1 px-2.5 rounded-full">Avoimia: {{ summary.pending_bets_count }} kpl</span>
+    <div class="px-6 py-4 border-b border-slate-800 flex justify-between items-center bg-slate-950/60">
+        <div class="flex gap-2">
+            <button onclick="toggleBets('pending')" id="btn-pending" class="px-4 py-1.5 rounded-lg text-sm font-bold bg-sky-600 text-white transition cursor-pointer">
+                Avoimet vedot ({{ summary.pending_bets_count }})
+            </button>
+            <button onclick="toggleBets('settled')" id="btn-settled" class="px-4 py-1.5 rounded-lg text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 transition cursor-pointer">
+                Vetohistoria
+            </button>
+        </div>
     </div>
     
-    <div class="overflow-x-auto">
+<!-- 1. AVOIMET VEDOT -->
+    <div id="table-pending" class="overflow-x-auto">
         <table class="w-full text-left text-xs text-slate-300">
-            <thead class="bg-slate-950 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+            <thead class="bg-slate-950/50 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
                 <tr>
                     <th class="py-3 px-4">Sarja</th>
+                    <th class="py-3 px-4">Päivämäärä</th>
                     <th class="py-3 px-4">Markkina</th>
                     <th class="py-3 px-4">Ottelu</th>
                     <th class="py-3 px-4">Valinta</th>
@@ -125,13 +133,13 @@
                     <th class="py-3 px-4">EV%</th>
                     <th class="py-3 px-4">Panos (€ / %)</th>
                     <th class="py-3 px-4">Tila</th>
-                    <th class="py-3 px-4 text-right">Tuotto (PnL)</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-800/60">
-                {% for bet in summary.recent_bets %}
+                {% for bet in summary.pending_bets %}
                 <tr class="hover:bg-slate-800/30 transition">
                     <td class="py-3 px-4 font-bold text-slate-300">{{ bet.league_code }}</td>
+                    <td class="py-3 px-4 text-slate-400 whitespace-nowrap">{{ bet.match_date_str }}</td>
                     <td class="py-3 px-4">
                         {% if bet.market_type == '1X2' %}
                             <span class="bg-sky-950 text-sky-400 border border-sky-800 text-[10px] font-bold px-2 py-0.5 rounded">1X2</span>
@@ -145,11 +153,56 @@
                     </td>
                     <td class="py-3 px-4">{{ bet.odds }}</td>
                     <td class="py-3 px-4 text-emerald-400 font-semibold">+{{ bet.ev_percentage }}%</td>
-                    <td class="py-3 px-4">{{ bet.stake_amount }} € ({{ bet.stake_percentage }}%)</td>
+                    <td class="py-3 px-4">{{ bet.stake_amount }} € <span class="text-slate-500">({{ bet.stake_percentage }}%)</span></td>
                     <td class="py-3 px-4">
-                        {% if bet.status == 'PENDING' %}
-                            <span class="bg-amber-950/80 text-amber-400 border border-amber-500/40 text-[10px] font-bold px-2 py-0.5 rounded">AVOIN</span>
-                        {% elif bet.status == 'WON' %}
+                        <span class="bg-amber-950/80 text-amber-400 border border-amber-500/40 text-[10px] font-bold px-2 py-0.5 rounded">AVOIN</span>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="py-6 text-center text-slate-500">Ei avoimia vetoja.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 2. VETOHISTORIA (Piilotettu oletuksena) -->
+    <div id="table-settled" class="overflow-x-auto hidden">
+        <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-950/50 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+                <tr>
+                    <th class="py-3 px-4">Sarja</th>
+                    <th class="py-3 px-4">Päivä</th>
+                    <th class="py-3 px-4">Markkina</th>
+                    <th class="py-3 px-4">Ottelu</th>
+                    <th class="py-3 px-4">Valinta</th>
+                    <th class="py-3 px-4">Kerroin</th>
+                    <th class="py-3 px-4">Panos (€ / %)</th>
+                    <th class="py-3 px-4">Tila</th>
+                    <th class="py-3 px-4 text-right">Tuotto (PnL)</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60">
+                {% for bet in summary.settled_history %}
+                <tr class="hover:bg-slate-800/30 transition">
+                    <td class="py-3 px-4 font-bold text-slate-300">{{ bet.league_code }}</td>
+                    <td class="py-3 px-4 text-slate-400 whitespace-nowrap">{{ bet.match_date_str }}</td>
+                    <td class="py-3 px-4">
+                        {% if bet.market_type == '1X2' %}
+                            <span class="bg-sky-950 text-sky-400 border border-sky-800 text-[10px] font-bold px-2 py-0.5 rounded">1X2</span>
+                        {% else %}
+                            <span class="bg-amber-950 text-amber-400 border border-amber-800 text-[10px] font-bold px-2 py-0.5 rounded">KORTIT</span>
+                        {% endif %}
+                    </td>
+                    <td class="py-3 px-4 font-medium text-white">{{ bet.match_name }}</td>
+                    <td class="py-3 px-4 font-bold {% if bet.market_type == '1X2' %}text-sky-400{% else %}text-amber-400{% endif %}">
+                        {{ bet.outcome }}
+                    </td>
+                    <td class="py-3 px-4">{{ bet.odds }}</td>
+                    <td class="py-3 px-4">{{ bet.stake_amount }} €</td>
+                    <td class="py-3 px-4">
+                        {% if bet.status == 'WON' %}
                             <span class="bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold px-2 py-0.5 rounded">VOITTO</span>
                         {% else %}
                             <span class="bg-rose-950/80 text-rose-400 border border-rose-500/40 text-[10px] font-bold px-2 py-0.5 rounded">TAPPIO</span>
@@ -161,11 +214,33 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="9" class="py-6 text-center text-slate-500">Ei vielä asetettuja vetoja.</td>
+                    <td colspan="9" class="py-6 text-center text-slate-500">Ei ratkaistuja vetoja.</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-</div>
+
+<script>
+// Yksinkertainen skripti välilehtien vaihtoon
+function toggleBets(tab) {
+    const btnPending = document.getElementById('btn-pending');
+    const btnSettled = document.getElementById('btn-settled');
+    const tablePending = document.getElementById('table-pending');
+    const tableSettled = document.getElementById('table-settled');
+
+    if (tab === 'pending') {
+        tablePending.classList.remove('hidden');
+        tableSettled.classList.add('hidden');
+        btnPending.className = 'px-4 py-1.5 rounded-lg text-sm font-bold bg-sky-600 text-white transition cursor-pointer';
+        btnSettled.className = 'px-4 py-1.5 rounded-lg text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 transition cursor-pointer';
+    } else {
+        tableSettled.classList.remove('hidden');
+        tablePending.classList.add('hidden');
+        btnSettled.className = 'px-4 py-1.5 rounded-lg text-sm font-bold bg-sky-600 text-white transition cursor-pointer';
+        btnPending.className = 'px-4 py-1.5 rounded-lg text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 transition cursor-pointer';
+    }
+}
+</script>
+
 {% endblock %}
