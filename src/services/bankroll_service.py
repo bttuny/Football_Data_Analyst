@@ -88,26 +88,33 @@ class BankrollService:
         actual_1x2 = "H" if actual_home > actual_away else ("D" if actual_home == actual_away else "A")
 
         for bet in pending_bets:
-            bet.settled_at = datetime.utcnow()
-            won = False
+            won = None  # None tarkoittaa, ettei ratkaisua voi vielä tehdä
+            
             if bet.market_type == "1X2":
                 won = (bet.outcome == actual_1x2)
-            elif bet.market_type.startswith("CARDS_OVER_") and actual_cards is not None:
-                line_str = bet.market_type.replace("CARDS_OVER_", "").replace("_", ".")
-                try:
-                    line_val = float(line_str)
-                    won = (actual_cards > line_val)
-                except ValueError:
-                    won = False
+            elif bet.market_type.startswith("CARDS_OVER_"):
+                if actual_cards is not None:
+                    line_str = bet.market_type.replace("CARDS_OVER_", "").replace("_", ".")
+                    try:
+                        line_val = float(line_str)
+                        won = (actual_cards > line_val)
+                    except ValueError:
+                        won = False
+                else:
+                    # Jos korttidataa ei ole vielä saatavilla, ohitetaan ratkaisu ja jätetään avoimeksi!
+                    continue
 
-            if won:
+            # Ratkaistaan vain ne vedot, joista on varma tieto (True tai False)
+            if won is True:
                 bet.status = "WON"
                 bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
-            else:
+                bet.settled_at = datetime.utcnow()
+                bankroll.current_balance = float(bankroll.current_balance) + bet.pnl
+            elif won is False:
                 bet.status = "LOST"
                 bet.pnl = -float(bet.stake_amount)
-
-            bankroll.current_balance = float(bankroll.current_balance) + bet.pnl
+                bet.settled_at = datetime.utcnow()
+                bankroll.current_balance = float(bankroll.current_balance) + bet.pnl
 
         db.commit()
 

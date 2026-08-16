@@ -2,6 +2,8 @@
 import os
 from datetime import datetime
 import pandas as pd
+from sqlalchemy.exc import IntegrityError
+
 from src.core.config import LEAGUES_CONFIG
 from src.core.database import SessionLocal, Base, engine
 from src.models.entities import (
@@ -15,6 +17,8 @@ from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.poisson_dixon import PremierLeaguePoissonModel
 from src.quant.metrics import calculate_brier_score, calculate_log_loss
 from src.services.bankroll_service import BankrollService
+from src.quant.cards_model import clean_name  # Lisätty korttien täsmäykseen
+
 
 def run_pipeline():
     print("=== TOP 5 LEAGUES QUANT ANALYST & BANKROLL PIPELINE ===")
@@ -23,20 +27,24 @@ def run_pipeline():
     fetcher = FootballDataFetcher()
     cards_fetcher = CardsDataFetcher()
     
-    # Varmista, että data-kansio on olemassa paikallista välimuistia varten
     os.makedirs("data", exist_ok=True)
 
     for code, conf in LEAGUES_CONFIG.items():
         print(f"\n--- Käsitellään {conf['name']} ({code}) ---")
 
-        # 1. Lataa ja tallenna kortti- ja tuomaridata paikallisesti päivittäisessä ajossa
+        # 1. Lataa ja tallenna kortti- ja tuomaridata
         print("Ladataan kortti- ja tuomaridata...")
         cards_df = cards_fetcher.fetch_cards_history(league_csv=conf["csv_code"])
         if not cards_df.empty:
+            # Vältetään fragmentaatiovaroitus .assign() metodilla
+            cards_df = cards_df.assign(
+                HomeClean=cards_df["HomeTeam"].apply(clean_name),
+                AwayClean=cards_df["AwayTeam"].apply(clean_name)
+            )
             cards_df.to_csv(f"data/{code}_cards.csv", index=False)
             print(f"✅ Korttidata ({len(cards_df)} ottelua) tallennettu cacheen.")
 
-        # 2. Varmistetaan liiga tietokannassa
+        # 2. Varmistetaan liiga
         league_obj = db.query(League).filter(League.code == code).first()
         if not league_obj:
             league_obj = League(
@@ -46,7 +54,7 @@ def run_pipeline():
             db.commit()
             db.refresh(league_obj)
 
-        # 3. Haetaan ottelut ja maalidatat Dixon-Colesia varten
+        # 3. Haetaan data Dixon-Colesia varten
         df_prev, _ = fetcher.fetch_matches(
             competition_code=conf["football_data_code"], season=2025
         )
@@ -62,6 +70,7 @@ def run_pipeline():
             )
             .all()
         )
+        
         if not df_curr.empty and locked_matches:
             for match in locked_matches:
                 m_data = df_curr[
@@ -75,8 +84,27 @@ def run_pipeline():
                     match.actual_away_goals = act_a
                     match.status = "FINISHED"
 
+                    act_cards = None
+                    if not cards_df.empty and "Date" in cards_df.columns:
+                        c_match = cards_df[
+                            (cards_df["HomeClean"] == clean_name(match.home_team)) &
+                            (cards_df["AwayClean"] == clean_name(match.away_team))
+                        ].copy()
+                        if not c_match.empty:
+                            c_match["parsed_date"] = pd.to_datetime(c_match["Date"], dayfirst=True, errors="coerce")
+                            c_match = c_match.sort_values("parsed_date")
+                            last_match = c_match.iloc[-1]
+                            
+                            # Varmistetaan, ettei oteta viime kauden tulosta (max 4 päivän heitto ottelupäivästä)
+                            if pd.notna(last_match["parsed_date"]) and match.match_datetime:
+                                m_date = match.match_datetime.replace(tzinfo=None)
+                                diff_days = abs((last_match["parsed_date"] - m_date).days)
+                                if diff_days <= 4:
+                                    act_cards = int(last_match["total_cards"])
+
+                    # Ratkaistaan vedot salkussa
                     BankrollService.settle_bets_for_match(
-                        db, match.match_id, act_h, act_a
+                        db, match.match_id, act_h, act_a, actual_cards=act_cards
                     )
 
                     pred = (
@@ -85,35 +113,40 @@ def run_pipeline():
                         .order_by(MatchPrediction.created_at.desc())
                         .first()
                     )
+                    
                     if pred:
-                        brier = calculate_brier_score(
-                            float(pred.prob_home_win),
-                            float(pred.prob_draw),
-                            float(pred.prob_away_win),
-                            act_h,
-                            act_a,
-                        )
-                        loss = calculate_log_loss(
-                            float(pred.prob_home_win),
-                            float(pred.prob_draw),
-                            float(pred.prob_away_win),
-                            act_h,
-                            act_a,
-                        )
-                        pred_out = (
-                            "H" if pred.prob_home_win > max(pred.prob_draw, pred.prob_away_win)
-                            else ("D" if pred.prob_draw > pred.prob_away_win else "A")
-                        )
-                        act_out = "H" if act_h > act_a else ("D" if act_h == act_a else "A")
+                        try:
+                            # Varmistetaan, ettei evaluointia lisätä kahdesti
+                            existing_eval = db.query(PredictionEvaluation).filter(PredictionEvaluation.match_id == match.match_id).first()
+                            if not existing_eval:
+                                brier = calculate_brier_score(
+                                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                                    act_h, act_a,
+                                )
+                                loss = calculate_log_loss(
+                                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                                    act_h, act_a,
+                                )
+                                pred_out = (
+                                    "H" if pred.prob_home_win > max(pred.prob_draw, pred.prob_away_win)
+                                    else ("D" if pred.prob_draw > pred.prob_away_win else "A")
+                                )
+                                act_out = "H" if act_h > act_a else ("D" if act_h == act_a else "A")
 
-                        eval_obj = PredictionEvaluation(
-                            match_id=match.match_id,
-                            prediction_id=pred.prediction_id,
-                            brier_score=brier,
-                            log_loss=loss,
-                            outcome_correct=(pred_out == act_out),
-                        )
-                        db.add(eval_obj)
+                                eval_obj = PredictionEvaluation(
+                                    match_id=match.match_id,
+                                    prediction_id=pred.prediction_id,
+                                    brier_score=brier,
+                                    log_loss=loss,
+                                    outcome_correct=(pred_out == act_out),
+                                )
+                                db.add(eval_obj)
+                                db.commit()
+                        except Exception as e:
+                            # DB Virhetilanteessa perutaan transaktio, jottei koko skripti kaadu
+                            db.rollback()
+                            print(f"  ⚠️ Ohitetaan evaluaation tallennus (tietokantavirhe ottelulle {match.match_id})")
+            
             db.commit()
 
         # 5. Koulutetaan sarjakohtainen Dixon-Coles
