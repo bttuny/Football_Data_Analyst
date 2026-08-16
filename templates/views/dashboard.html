@@ -3,11 +3,22 @@
 {% block title %}Top 5 Liigat & Arvovedot - Quant Engine{% endblock %}
 
 {% block content %}
-<div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
     <div>
-        <h1 class="text-2xl font-bold text-white">Seuraavat ottelut & Value Bets</h1>
+        <h1 class="text-2xl font-bold text-white mb-1">Seuraavat ottelut & Value Bets</h1>
         <p class="text-sm text-slate-400">Euroopan Top 5 -liigat: Dixon-Coles xG, kertoimet ja 1/4 Kelly -vedot.</p>
     </div>
+    
+    <!-- Päivitysnappi ja aikaleima -->
+    <form action="/api/v1/odds/refresh" method="POST" class="flex items-center gap-3 bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg shadow">
+        <div class="flex flex-col text-right">
+            <span class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Kertoimet haettu</span>
+            <span class="text-xs text-emerald-400 font-mono">{{ last_updated }}</span>
+        </div>
+        <button type="submit" class="bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-bold px-3 py-2 rounded transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
+            <span>🔄</span> Päivitä Kertoimet
+        </button>
+    </form>
 
     <!-- Sarjasuodattimet -->
     <div class="flex flex-wrap gap-2">

@@ -1,6 +1,9 @@
 # src/api/routes.py
+import time
 import os
 import pandas as pd
+import json
+from datetime import datetime
 from fastapi import FastAPI, Depends, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -25,6 +28,36 @@ templates = Jinja2Templates(directory="templates")
 
 # Dynaaminen korttimallien muisti
 league_cards_models = {}
+
+ODDS_CACHE = {}
+ODDS_CAHCE_TTL = {}
+ODDS_CACHE_FILE = "data/odds_cache.json"
+
+def load_odds_cache():
+    if os.path.exists(ODDS_CACHE_FILE):
+        try:
+            with open(ODDS_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_odds_cache(cache_data):
+    os.makedirs("data", exist_ok=True)
+    with open(ODDS_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f)
+
+# Ladataan välimuisti heti käynnistyksessä
+ODDS_CACHE = load_odds_cache()
+
+def get_last_odds_update_time():
+    if not ODDS_CACHE:
+        return "Ei kertoimia"
+    latest = max([v.get("timestamp", 0) for v in ODDS_CACHE.values()])
+    if latest == 0:
+        return "Ei kertoimia"
+    dt = datetime.fromtimestamp(latest, tz=ZoneInfo("Europe/Helsinki"))
+    return dt.strftime("%d.%m. klo %H:%M")
 
 def get_cards_model(code: str) -> PremierLeagueCardsModel:
     """Hakee mallin muistista, tai lataa sen levyltä lennosta jos se puuttuu."""
@@ -65,6 +98,30 @@ def get_league_referees():
         ref_map[code] = ref_list
     return ref_map
 
+@app.post("/api/v1/odds/refresh")
+def refresh_odds(request: Request):
+    """Manuaalinen nappi kertoimien päivitykseen."""
+    odds_fetcher = OddsFetcher()
+    current_time = time.time()
+    
+    for code, conf in LEAGUES_CONFIG.items():
+        sport_key = conf.get("odds_key")
+        if sport_key:
+            print(f"🔄 Manuaalinen päivitys: {sport_key}...")
+            try:
+                fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
+                ODDS_CACHE[sport_key] = {
+                    "data": fetched_data,
+                    "timestamp": current_time
+                }
+            except Exception as e:
+                print(f"⚠️ Virhe haettaessa kertoimia {sport_key}: {e}")
+                
+    save_odds_cache(ODDS_CACHE)
+    # Palautetaan käyttäjä samaan liiganäkymään, jossa hän oli
+    referer = request.headers.get("referer", "/")
+    return RedirectResponse(url=referer, status_code=303)
+
 
 @app.get("/api/v1/predictions/upcoming")
 def get_upcoming_predictions(
@@ -81,17 +138,24 @@ def get_upcoming_predictions(
 
     matches = query.limit(50).all()
     odds_fetcher = OddsFetcher()
-    current_odds_by_sport = {}
     results = []
 
     for m in matches:
         l_code = m.league.code if m.league else "PL"
         sport_key = LEAGUES_CONFIG.get(l_code, {}).get("odds_key", "soccer_epl")
 
-        if sport_key not in current_odds_by_sport:
-            current_odds_by_sport[sport_key] = odds_fetcher.fetch_current_odds(sport_key=sport_key)
+        # Jos liigaa ei ole koskaan haettu välimuistiin (esim. ensimmäinen asennus), haetaan kerran
+        if sport_key not in ODDS_CACHE:
+            print(f"🌐 Ensimmäinen haku liigalle {sport_key}...")
+            fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
+            ODDS_CACHE[sport_key] = {
+                "data": fetched_data,
+                "timestamp": time.time()
+            }
+            save_odds_cache(ODDS_CACHE)
 
-        events_list = current_odds_by_sport[sport_key]
+        events_list = ODDS_CACHE.get(sport_key, {}).get("data", [])
+        
         match_odds = odds_fetcher.get_odds_for_match(
             m.home_team, m.away_team, events_list, sport_key
         )
@@ -113,24 +177,14 @@ def get_upcoming_predictions(
                 match_odds.get("H", 0.0), match_odds.get("D", 0.0), match_odds.get("A", 0.0),
             )
 
-            # Haetaan dynaaminen malli tälle liigalle
             c_model = get_cards_model(l_code)
             card_pred = c_model.predict_cards(m.home_team, m.away_team, referee=m.referee)
             
-            # Joukkueiden perusodote (base_lambda) tuomarivalitsinta varten
             h_clean = clean_name(m.home_team)
             a_clean = clean_name(m.away_team)
             h_f = next((v for k, v in c_model.team_card_factors.items() if len(k) > 2 and k in h_clean), 1.0)
             a_f = next((v for k, v in c_model.team_card_factors.items() if len(k) > 2 and k in a_clean), 1.0)
             card_pred["base_lambda"] = round(c_model.league_avg_cards * ((h_f + a_f) / 2.0), 2)
-
-            for vb in value_analysis:
-                if vb["is_value"]:
-                    BankrollService.place_value_bet(
-                        db=db, match_id=m.match_id, match_name=f"{m.home_team} vs {m.away_team}",
-                        outcome=vb["outcome"], odds=vb["odds"], ev_pct=vb["ev_percentage"],
-                        stake_pct=vb["kelly_stake_pct"], league_code=l_code, market_type="1X2",
-                    )
 
             formatted_time = ""
             if m.match_datetime:
@@ -161,6 +215,7 @@ def get_upcoming_predictions(
 def render_dashboard(request: Request, league: str = "ALL", db: Session = Depends(get_db)):
     predictions = get_upcoming_predictions(league=league, db=db)
     referees_by_league = get_league_referees()
+    last_updated = get_last_odds_update_time() # Haetaan päivitysaika
 
     return templates.TemplateResponse(
         request,
@@ -171,6 +226,7 @@ def render_dashboard(request: Request, league: str = "ALL", db: Session = Depend
             "current_league": league,
             "leagues_config": LEAGUES_CONFIG,
             "referees_by_league": referees_by_league,
+            "last_updated": last_updated, # Välitetään UI:hin
         },
     )
 
