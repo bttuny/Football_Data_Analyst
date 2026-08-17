@@ -85,12 +85,13 @@
             {% endfor %}
         </div>
 
-        <!-- Valinnan tiedot ja lomake -->
+       <!-- Valinnan tiedot ja lomake -->
         <div class="flex justify-between items-center bg-slate-900 px-2 py-1 rounded border border-slate-800 mb-2 text-[10.5px]">
             <span class="text-slate-400">Valittu: <strong class="text-amber-300" id="label-line-{{ item.match_id }}">Yli 4.5 korttia</strong></span>
             <span class="text-slate-400">Tn: <strong class="text-white" id="label-prob-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.prob_pct }}%</strong> (Reilu: <span class="text-amber-300 font-mono" id="label-odds-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.fair_odds }}</span>)</span>
         </div>
 
+        {% if current_user.role == 'admin' %}
         <form action="/api/v1/bets/cards" method="POST" class="flex items-center gap-2 pt-1 border-t border-slate-800/80">
             <input type="hidden" name="match_id" value="{{ item.match_id }}">
             <input type="hidden" name="match_name" value="{{ item.home_team }} vs {{ item.away_team }}">
@@ -105,8 +106,13 @@
                 + Lyö veto
             </button>
         </form>
+        {% else %}
+        <div class="text-[10px] text-slate-500 italic text-center pt-1 border-t border-slate-800/80">
+            Korttivetojen asettaminen vaatii admin-oikeudet.
+        </div>
+        {% endif %} 
     </div>
-    {% endif %}
+    {% endif %} 
 </div>
 
 <script>

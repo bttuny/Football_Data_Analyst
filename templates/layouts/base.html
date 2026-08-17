@@ -6,11 +6,30 @@
     <title>{% block title %}Quant Betting Platform{% endblock %}</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
     
-    {% include 'components/navbar.html' %}
+    <!-- Yläpalkki / Navigaatio -->
+    <header class="border-b border-slate-800 bg-slate-900/50 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-6">
+                <span class="font-bold text-emerald-400">⚽ Quant Engine</span>
+                <nav class="flex gap-4 text-xs">
+                    <a href="/" class="text-slate-300 hover:text-white transition">Ottelut & Arvovedot</a>
+                    <a href="/bankroll" class="text-slate-300 hover:text-white transition">Paper Portfolio</a>
+                </nav>
+            </div>
+            
+            <!-- Käyttäjän tiedot ja uloskirjautuminen -->
+            {% if current_user %}
+            <div class="flex items-center gap-4 text-xs text-slate-400">
+                <span>Kirjautuneena: <strong class="text-slate-200">{{ current_user.username }}</strong> (<span class="uppercase text-emerald-400">{{ current_user.role }}</span>)</span>
+                <a href="/logout" class="bg-red-950/50 hover:bg-red-900 text-red-300 px-3 py-1.5 rounded border border-red-900 transition-colors">Kirjaudu ulos</a>
+            </div>
+            {% endif %}
+        </div>
+    </header>
 
     <main class="flex-grow max-w-7xl mx-auto w-full px-4 py-6">
         {% block content %}{% endblock %}
