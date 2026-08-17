@@ -177,6 +177,26 @@ def get_upcoming_predictions(
                 match_odds.get("H", 0.0), match_odds.get("D", 0.0), match_odds.get("A", 0.0),
             )
 
+            for b_data in value_analysis:
+                outcome = b_data.get("outcome", "")
+                ev_pct = b_data.get("ev_percentage", 0)
+                stake_pct = b_data.get("kelly_stake_pct", 0)
+                odds = b_data.get("odds", 0)
+
+                # Varmistetaan, että kohteessa on arvoa ja panossuositus on vähintään 0.1%
+                if ev_pct > 0 and stake_pct >= 0.1:
+                    BankrollService.place_value_bet(
+                        db=db,
+                        match_id=m.match_id,
+                        match_name=f"{m.home_team} vs {m.away_team}",
+                        outcome=outcome,
+                        odds=odds,
+                        ev_pct=ev_pct,
+                        stake_pct=stake_pct,
+                        league_code=l_code,
+                        market_type="1X2"
+                    )
+
             c_model = get_cards_model(l_code)
             card_pred = c_model.predict_cards(m.home_team, m.away_team, referee=m.referee)
             
