@@ -2,16 +2,14 @@
 import time
 import os
 import pandas as pd
-import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Depends, Request, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from typing import Optional
 from jose import jwt, JWTError
-from zoneinfo import ZoneInfo
-from datetime import timezone, timedelta
 
 from src.core.config import LEAGUES_CONFIG
 from src.core.database import get_db, Base, engine
@@ -28,44 +26,25 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Top 5 Leagues Quant Analytics API")
 templates = Jinja2Templates(directory="templates")
 
-# Dynaaminen korttimallien muisti
+# Dynaamiset muistit
 league_cards_models = {}
-
 ODDS_CACHE = {}
-ODDS_CAHCE_TTL = {}
-ODDS_CACHE_FILE = "data/odds_cache.json"
 
-def load_odds_cache():
-    if os.path.exists(ODDS_CACHE_FILE):
-        try:
-            with open(ODDS_CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_odds_cache(cache_data):
-    os.makedirs("data", exist_ok=True)
-    with open(ODDS_CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache_data, f)
-
-# Ladataan välimuisti heti käynnistyksessä
-ODDS_CACHE = load_odds_cache()
 
 def get_last_odds_update_time():
     if not ODDS_CACHE:
         return "Ei kertoimia"
-    latest = max([v.get("timestamp", 0) for v in ODDS_CACHE.values()])
+    latest = max([v.get("timestamp", 0) for v in ODDS_CACHE.values()] or [0])
     if latest == 0:
         return "Ei kertoimia"
     dt = datetime.fromtimestamp(latest, tz=ZoneInfo("Europe/Helsinki"))
     return dt.strftime("%d.%m. klo %H:%M")
 
+
 def get_cards_model(code: str) -> PremierLeagueCardsModel:
     """Hakee mallin muistista, tai lataa sen levyltä lennosta jos se puuttuu."""
     model = league_cards_models.get(code)
     
-    # KORJAUS: Tarkistetaan, että mallissa on joukkuekertoimia (eikä tuomareita, joita ei kaikissa liigoissa ole)
     if model and len(model.team_card_factors) > 0:
         return model
         
@@ -80,9 +59,9 @@ def get_cards_model(code: str) -> PremierLeagueCardsModel:
         except Exception as e:
             print(f"⚠️ Virhe ladattaessa mallia {code}: {e}")
             
-    # Tallennetaan malli välimuistiin, jotta sitä ei ladata turhaan uudelleen
     league_cards_models[code] = new_model
     return new_model
+
 
 def get_league_referees():
     """Hakee dynaamisesti ladatuista malleista kaikkien liigojen tuomarit."""
@@ -100,45 +79,35 @@ def get_league_referees():
         ref_map[code] = ref_list
     return ref_map
 
+
 def get_current_user(request: Request, db: Session = Depends(get_db)):
-    """
-    Tämä funktio tarkistaa evästeet (Cookies). 
-    Jos käyttäjällä on voimassa oleva JWT-avain, hänet päästetään sisään.
-    Jos ei ole, hänet heitetään armotta takaisin kirjautumissivulle (Redirect).
-    """
-    # 1. Yritetään lukea eväste nimeltä "access_token"
     token = request.cookies.get("access_token")
-    
-    # 2. Jos evästettä ei ole (käyttäjä ei ole kirjautunut), ohjataan /login sivulle
     if not token:
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
 
     try:
-        # Poistetaan mahdollinen "Bearer "-etuliite
         if token.startswith("Bearer "):
             token = token.split(" ")[1]
             
-        # 3. Yritetään purkaa JWT-token SECRET_KEY:n avulla.
-        # Jos hakkeri on yrittänyt väärentää tokenin, tämä kaatuu välittömästi.
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
             
-    except JWTError: # Token on vanhentunut tai väärennetty
+    except JWTError:
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
 
-    # 4. Haetaan käyttäjän tiedot tietokannasta ja palautetaan ne
     user = db.query(User).filter(User.username == username).first()
     if user is None:
         raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
         
     return user
 
+
 @app.post("/api/v1/odds/refresh")
 def refresh_odds(
     request: Request,
-    current_user: User = Depends(get_current_user) # <--- Vartija mukaan
+    current_user: User = Depends(get_current_user)
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus päivittää kertoimia.")
@@ -152,15 +121,14 @@ def refresh_odds(
             print(f"🔄 Manuaalinen päivitys: {sport_key}...")
             try:
                 fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
-                ODDS_CACHE[sport_key] = {
-                    "data": fetched_data,
-                    "timestamp": current_time
-                }
+                if fetched_data:
+                    ODDS_CACHE[sport_key] = {
+                        "data": fetched_data,
+                        "timestamp": current_time
+                    }
             except Exception as e:
                 print(f"⚠️ Virhe haettaessa kertoimia {sport_key}: {e}")
                 
-    save_odds_cache(ODDS_CACHE)
-    # Palautetaan käyttäjä samaan liiganäkymään, jossa hän oli
     referer = request.headers.get("referer", "/")
     return RedirectResponse(url=referer, status_code=303)
 
@@ -186,15 +154,14 @@ def get_upcoming_predictions(
         l_code = m.league.code if m.league else "PL"
         sport_key = LEAGUES_CONFIG.get(l_code, {}).get("odds_key", "soccer_epl")
 
-        # Jos liigaa ei ole koskaan haettu välimuistiin (esim. ensimmäinen asennus), haetaan kerran
         if sport_key not in ODDS_CACHE:
             print(f"🌐 Ensimmäinen haku liigalle {sport_key}...")
             fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
-            ODDS_CACHE[sport_key] = {
-                "data": fetched_data,
-                "timestamp": time.time()
-            }
-            save_odds_cache(ODDS_CACHE)
+            if fetched_data:
+                ODDS_CACHE[sport_key] = {
+                    "data": fetched_data,
+                    "timestamp": time.time()
+                }
 
         events_list = ODDS_CACHE.get(sport_key, {}).get("data", [])
         
@@ -225,7 +192,6 @@ def get_upcoming_predictions(
                 stake_pct = b_data.get("kelly_stake_pct", 0)
                 odds = b_data.get("odds", 0)
 
-                # Varmistetaan, että kohteessa on arvoa ja panossuositus on vähintään 0.1%
                 if ev_pct > 0 and stake_pct >= 0.1:
                     BankrollService.place_value_bet(
                         db=db,
@@ -274,10 +240,15 @@ def get_upcoming_predictions(
 
 
 @app.get("/", response_class=HTMLResponse)
-def render_dashboard(request: Request, league: str = "ALL", db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def render_dashboard(
+    request: Request, 
+    league: str = "ALL", 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
     predictions = get_upcoming_predictions(league=league, db=db)
     referees_by_league = get_league_referees()
-    last_updated = get_last_odds_update_time() # Haetaan päivitysaika
+    last_updated = get_last_odds_update_time()
 
     return templates.TemplateResponse(
         request,
@@ -288,14 +259,18 @@ def render_dashboard(request: Request, league: str = "ALL", db: Session = Depend
             "current_league": league,
             "leagues_config": LEAGUES_CONFIG,
             "referees_by_league": referees_by_league,
-            "last_updated": last_updated, # Välitetään UI:hin
+            "last_updated": last_updated,
             "current_user": current_user,
         },
     )
 
 
 @app.get("/bankroll", response_class=HTMLResponse)
-def render_bankroll(request: Request, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def render_bankroll(
+    request: Request, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
     summary = BankrollService.get_portfolio_summary(db)
     return templates.TemplateResponse(
         request,
@@ -313,9 +288,8 @@ def place_card_bet(
     user_odds: float = Form(...),
     line_prob: float = Form(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # <--- Vartija mukaan
+    current_user: User = Depends(get_current_user)
 ):
-    # Estetään tavallista käyttäjää (user) lyömästä korttivetoja
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus asettaa korttivetoja.")
 
@@ -340,10 +314,11 @@ def place_card_bet(
             )
     return RedirectResponse(url="/bankroll", status_code=303)
 
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    """Näyttää kirjautumissivun (HTML)."""
     return templates.TemplateResponse(request, "views/login.html", {})
+
 
 @app.post("/login")
 def login_post(
@@ -351,37 +326,32 @@ def login_post(
     password: str = Form(...), 
     db: Session = Depends(get_db)
 ):
-    """Käsittelee kirjautumislomakkeen tiedot."""
-    # 1. Etsitään käyttäjä tietokannasta
     user = db.query(User).filter(User.username == username).first()
     
-    # 2. Tarkistetaan täsmääkö salasana tietokannan hashiin
     if not user or not verify_password(password, user.hashed_password):
-        # Jos menee väärin, palautetaan kirjautumissivulle (tässä voisi myös näyttää virheviestin)
         return RedirectResponse(url="/login?error=1", status_code=303)
 
-    # 3. Luodaan digitaalinen leima (JWT)
-    access_token_expires = timedelta(minutes=60 * 24 * 7) # 7 päivää
+    access_token_expires = timedelta(minutes=60 * 24 * 7)
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role}, 
         expires_delta=access_token_expires
     )
 
-    # 4. Asetetaan token selaimeen TURVALLISESTI
+    is_production = os.getenv("RENDER", "false").lower() == "true"
     redirect_response = RedirectResponse(url="/", status_code=303)
     redirect_response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
-        httponly=True, # TÄRKEIN! Estää XSS (Cross-Site Scripting) hyökkäykset JavaScriptillä.
-        max_age=60 * 24 * 7 * 60, # Sekunteina
-        samesite="lax", # Suojaa CSRF-hyökkäyksiltä
-        secure=False # Laita True tuotannossa, kun käytät HTTPS (SSL-varmenne)!
+        httponly=True,
+        max_age=60 * 24 * 7 * 60,
+        samesite="lax",
+        secure=is_production
     )
     return redirect_response
 
+
 @app.get("/logout")
 def logout():
-    """Kirjaa ulos tuhoamalla evästeen."""
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie("access_token")
-    return response    
+    return response
