@@ -9,11 +9,12 @@ from fastapi import FastAPI, Depends, Request, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from jose import jwt, JWTError
 
 from src.core.config import LEAGUES_CONFIG
 from src.core.database import get_db, Base, engine
-from src.models.entities import Match, MatchPrediction, League, User
+from src.models.entities import Match, MatchPrediction, League, User, PaperBet, OddsCache
 from src.ingestion.odds_fetcher import OddsFetcher
 from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.value_finder import calculate_value_bets
@@ -29,17 +30,16 @@ templates = Jinja2Templates(directory="templates")
 
 # Dynaamiset muistit
 league_cards_models = {}
-ODDS_CACHE = {}
 
 
-def get_last_odds_update_time():
-    if not ODDS_CACHE:
+
+def get_last_odds_update_time(db: Session):
+    # Hakee tietokannasta viimeisimmän päivitysajan
+    latest = db.query(OddsCache).order_by(OddsCache.updated_at.desc()).first()
+    if not latest or not latest.updated_at:
         return "Ei kertoimia"
-    latest = max([v.get("timestamp", 0) for v in ODDS_CACHE.values()] or [0])
-    if latest == 0:
-        return "Ei kertoimia"
-    dt = datetime.fromtimestamp(latest, tz=ZoneInfo("Europe/Helsinki"))
-    return dt.strftime("%d.%m. klo %H:%M")
+    dt_helsinki = latest.updated_at.astimezone(ZoneInfo("Europe/Helsinki"))
+    return dt_helsinki.strftime("%d.%m. klo %H:%M")
 
 
 def get_cards_model(code: str) -> PremierLeagueCardsModel:
@@ -120,13 +120,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
 @app.post("/api/v1/odds/refresh")
 def refresh_odds(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus päivittää kertoimia.")
 
     odds_fetcher = OddsFetcher()
-    current_time = time.time()
     
     for code, conf in LEAGUES_CONFIG.items():
         sport_key = conf.get("odds_key")
@@ -134,11 +134,18 @@ def refresh_odds(
             print(f"🔄 Manuaalinen päivitys: {sport_key}...")
             try:
                 fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
-                if fetched_data:
-                    ODDS_CACHE[sport_key] = {
-                        "data": fetched_data,
-                        "timestamp": current_time
-                    }
+                data_to_save = fetched_data if isinstance(fetched_data, list) else []
+                
+                # Tallennetaan kertoimet tietokantaan (Insert tai Update)
+                cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
+                if cache_entry:
+                    cache_entry.data = data_to_save
+                    cache_entry.updated_at = func.now()
+                else:
+                    new_cache = OddsCache(sport_key=sport_key, data=data_to_save)
+                    db.add(new_cache)
+                    
+                db.commit()
             except Exception as e:
                 print(f"⚠️ Virhe haettaessa kertoimia {sport_key}: {e}")
                 
@@ -167,16 +174,8 @@ def get_upcoming_predictions(
         l_code = m.league.code if m.league else "PL"
         sport_key = LEAGUES_CONFIG.get(l_code, {}).get("odds_key", "soccer_epl")
 
-        if sport_key not in ODDS_CACHE:
-            print(f"🌐 Ensimmäinen haku liigalle {sport_key}...")
-            fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
-            if fetched_data:
-                ODDS_CACHE[sport_key] = {
-                    "data": fetched_data,
-                    "timestamp": time.time()
-                }
-
-        events_list = ODDS_CACHE.get(sport_key, {}).get("data", [])
+        cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
+        events_list = cache_entry.data if cache_entry and cache_entry.data else []
         
         match_odds = odds_fetcher.get_odds_for_match(
             m.home_team, m.away_team, events_list, sport_key
@@ -261,7 +260,7 @@ def render_dashboard(
 ):
     predictions = get_upcoming_predictions(league=league, db=db)
     referees_by_league = get_league_referees()
-    last_updated = get_last_odds_update_time()
+    last_updated = get_last_odds_update_time(db)
 
     return templates.TemplateResponse(
         request,
@@ -327,6 +326,32 @@ def place_card_bet(
             )
     return RedirectResponse(url="/bankroll", status_code=303)
 
+@app.post("/api/v1/bets/{bet_id}/resolve")
+def resolve_bet(
+    bet_id: int,
+    status: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus ratkaista vetoja.")
+
+    # TÄSSÄ ON SE KRIITTINEN MUUTOS: PaperBet.bet_id
+    bet = db.query(PaperBet).filter(PaperBet.bet_id == bet_id).first()
+    
+    if not bet:
+        raise HTTPException(status_code=404, detail="Vetoa ei löytynyt.")
+
+    if status == "WON":
+        bet.status = "WON"
+        bet.pnl = float(bet.stake_amount) * (float(bet.odds) - 1.0)
+    elif status == "LOST":
+        bet.status = "LOST"
+        bet.pnl = -float(bet.stake_amount)
+
+    db.commit()
+    
+    return RedirectResponse(url="/bankroll", status_code=303)
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):

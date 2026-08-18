@@ -155,7 +155,28 @@
                     <td class="py-3 px-4 text-emerald-400 font-semibold">+{{ bet.ev_percentage }}%</td>
                     <td class="py-3 px-4">{{ bet.stake_amount }} € <span class="text-slate-500">({{ bet.stake_percentage }}%)</span></td>
                     <td class="py-3 px-4">
-                        <span class="bg-amber-950/80 text-amber-400 border border-amber-500/40 text-[10px] font-bold px-2 py-0.5 rounded">AVOIN</span>
+                        <span class="bg-amber-950/80 text-amber-400 border border-amber-500/40 text-[10px] font-bold px-2 py-0.5 rounded block w-max mb-1.5">AVOIN</span>
+                        
+                        <!-- NAPIT VAIN ADMINILLE JA VAIN KORTTIVEDOILLE -->
+                        {% if current_user.role == 'admin' and 'CARDS' in bet.market_type %}
+                        <div class="flex items-center gap-1">
+                            <!-- Merkitse voitetuksi -->
+                            <form action="/api/v1/bets/{{ bet.bet_id }}/resolve" method="POST">
+                                <input type="hidden" name="status" value="WON">
+                                <button type="submit" title="Merkitse voitetuksi" class="bg-emerald-900/50 hover:bg-emerald-600 border border-emerald-700 text-emerald-400 hover:text-white text-[9px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer">
+                                    V
+                                </button>
+                            </form>
+                            
+                            <!-- Merkitse hävityksi -->
+                            <form action="/api/v1/bets/{{ bet.bet_id }}/resolve" method="POST">
+                                <input type="hidden" name="status" value="LOST">
+                                <button type="submit" title="Merkitse hävityksi" class="bg-rose-900/50 hover:bg-rose-600 border border-rose-700 text-rose-400 hover:text-white text-[9px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer">
+                                    T
+                                </button>
+                            </form>
+                        </div>
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}
