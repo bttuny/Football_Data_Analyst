@@ -15,6 +15,7 @@ from src.core.config import LEAGUES_CONFIG
 from src.core.database import get_db, Base, engine
 from src.models.entities import Match, MatchPrediction, League, User
 from src.ingestion.odds_fetcher import OddsFetcher
+from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.value_finder import calculate_value_bets
 from src.quant.cards_model import PremierLeagueCardsModel, clean_name
 from src.services.bankroll_service import BankrollService
@@ -42,23 +43,35 @@ def get_last_odds_update_time():
 
 
 def get_cards_model(code: str) -> PremierLeagueCardsModel:
-    """Hakee mallin muistista, tai lataa sen levyltä lennosta jos se puuttuu."""
+    """Hakee mallin muistista, tai lataa sen lennosta NETISTÄ, jos se puuttuu."""
     model = league_cards_models.get(code)
     
     if model and len(model.team_card_factors) > 0:
         return model
         
+    print(f"🌐 Korttimallia {code} ei löytynyt muistista. Ladataan ja opetetaan lennosta...")
     new_model = PremierLeagueCardsModel()
-    file_path = f"data/{code}_cards.csv"
-    if os.path.exists(file_path):
-        try:
-            df = pd.read_csv(file_path)
-            if not df.empty:
-                new_model.fit(df)
-                print(f"✅ Ladattiin korttimalli lennosta liigalle {code}: {len(df)} ottelua.")
-        except Exception as e:
-            print(f"⚠️ Virhe ladattaessa mallia {code}: {e}")
+    
+    # Käytetään valmista fetcheriä hakemaan CSV-data suoraan netistä RAM-muistiin!
+    fetcher = CardsDataFetcher()
+    
+    # Haetaan configista oikea CSV-koodi käyttäen avainta 'csv_code'
+    league_cfg = LEAGUES_CONFIG.get(code, {})
+    csv_code = league_cfg.get("csv_code", "E0") # Oletuksena E0 jos ei löydy
+    
+    try:
+        # Ladataan dataframe lennosta netistä (EI levyltä!)
+        df = fetcher.fetch_cards_history(league_csv=csv_code)
+        
+        if not df.empty:
+            new_model.fit(df)
+            print(f"✅ Korttimalli opetettu lennosta liigalle {code} ({len(df)} ottelua).")
+        else:
+            print(f"⚠️ Korttidataa ei saatu ladattua liigalle {code}.")
+    except Exception as e:
+        print(f"⚠️ Virhe korttimallin latauksessa/opetuksessa ({code}): {e}")
             
+    # Tallennetaan malli välimuistiin (RAM), jotta sitä ei ladata turhaan uudelleen
     league_cards_models[code] = new_model
     return new_model
 
