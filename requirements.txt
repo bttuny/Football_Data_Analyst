@@ -32,7 +32,7 @@ python-multipart==0.0.32
 PyYAML==6.0.3
 requests==2.34.2
 rsa==4.9.1
-scipy==1.18.0
+scipy==1.17.1
 six==1.17.0
 SQLAlchemy==2.0.52
 starlette==1.6.0
