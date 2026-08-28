@@ -1,11 +1,12 @@
 # src/quant/cards_model.py
 import re
 import unicodedata
+from typing import Optional
 import numpy as np
 import pandas as pd
 from scipy.stats import poisson
 
-def clean_name(text: str) -> str:
+def clean_name(text: Optional[str]) -> str:
     if not text or pd.isna(text):
         return ""
     
@@ -48,7 +49,7 @@ class PremierLeagueCardsModel:
             df["parsed_date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
             max_date = df["parsed_date"].max()
             
-            if pd.isna(max_date):
+            if max_date is pd.NaT or pd.isna(max_date) is True:
                 df["weight"] = 1.0
             else:
                 decay_rate = np.log(2) / 365.0  # 50% painoarvo laskee 365 päivässä
@@ -79,7 +80,6 @@ class PremierLeagueCardsModel:
         # 3. Tuomarikertoimet (Painotettu keskiarvo + Bayes-kutistus k=8)
         valid_refs = df[~df["RefClean"].isin(["unknown", "nan", ""])].copy()
         
-        # Ryhmitellään ja lasketaan suoraan aggregoidut summat vektoreina (TÄSSÄ EI ENÄÄ OLE APPLY-FUNKTIOTA)
         ref_stats = valid_refs.groupby("RefClean").agg(
             matches=("total_cards", "count"),
             w_sum=("weight", "sum"),
@@ -93,12 +93,8 @@ class PremierLeagueCardsModel:
         )
 
         k = 8.0
-        for _, row in ref_stats.iterrows():
-            ref = row["RefClean"]
-            n = row["matches"]
-            mean_c = row["cards"]
-            shrunk_factor = (n * (mean_c / self.league_avg_cards) + k * 1.0) / (n + k)
-            self.referee_factors[ref] = float(shrunk_factor)
+        shrunk_factors = (ref_stats["matches"] * (ref_stats["cards"] / self.league_avg_cards) + k * 1.0) / (ref_stats["matches"] + k)
+        self.referee_factors = dict(zip(ref_stats["RefClean"].astype(str), shrunk_factors.astype(float)))
 
         # 4. Joukkuekertoimet (Painotettu keskiarvo vektoreilla)
         home_stats = df.groupby("HomeClean").agg(w_sum=("weight", "sum"), wt_sum=("weighted_home", "sum"))
@@ -116,13 +112,13 @@ class PremierLeagueCardsModel:
         all_teams = set(home_cards.index).union(set(away_cards.index))
 
         for t in all_teams:
-            h_c = home_cards.get(t, self.league_avg_cards / 2.0)
-            a_c = away_cards.get(t, self.league_avg_cards / 2.0)
+            h_c = float(home_cards.get(t, self.league_avg_cards / 2.0) or (self.league_avg_cards / 2.0))
+            a_c = float(away_cards.get(t, self.league_avg_cards / 2.0) or (self.league_avg_cards / 2.0))
             team_avg = h_c + a_c
             self.team_card_factors[t] = float(team_avg / self.league_avg_cards)
 
     def predict_cards(
-        self, home_team: str, away_team: str, referee: str = None
+        self, home_team: str, away_team: str, referee: Optional[str] = None
     ) -> dict:
         h_clean = clean_name(home_team)
         a_clean = clean_name(away_team)

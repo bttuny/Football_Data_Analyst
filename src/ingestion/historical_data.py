@@ -38,10 +38,13 @@ class CardsDataFetcher:
                         if "AR" not in df_clean.columns: df_clean["AR"] = 0
                         if "Referee" not in df_clean.columns: df_clean["Referee"] = "Unknown"
 
-                        df_clean["home_cards"] = pd.to_numeric(df_clean["HY"], errors="coerce").fillna(0) + \
-                                                 (pd.to_numeric(df_clean["HR"], errors="coerce").fillna(0) * 2)
-                        df_clean["away_cards"] = pd.to_numeric(df_clean["AY"], errors="coerce").fillna(0) + \
-                                                 (pd.to_numeric(df_clean["AR"], errors="coerce").fillna(0) * 2)
+                        hy = pd.Series(pd.to_numeric(df_clean["HY"], errors="coerce")).fillna(0)
+                        hr = pd.Series(pd.to_numeric(df_clean["HR"], errors="coerce")).fillna(0)
+                        ay = pd.Series(pd.to_numeric(df_clean["AY"], errors="coerce")).fillna(0)
+                        ar = pd.Series(pd.to_numeric(df_clean["AR"], errors="coerce")).fillna(0)
+
+                        df_clean["home_cards"] = hy + (hr * 2)
+                        df_clean["away_cards"] = ay + (ar * 2)
                         
                         df_clean["total_cards"] = df_clean["home_cards"] + df_clean["away_cards"]
                         df_clean["Referee"] = df_clean["Referee"].fillna("Unknown").astype(str).str.strip()

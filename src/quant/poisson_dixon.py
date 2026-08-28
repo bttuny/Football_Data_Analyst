@@ -94,7 +94,7 @@ class PremierLeaguePoissonModel:
             d["parsed_date"] = pd.NaT
 
         max_date = d["parsed_date"].max()
-        if pd.isna(max_date):
+        if max_date is pd.NaT or pd.isna(max_date) is True:
             d["weight"] = 1.0
         else:
             decay_rate = np.log(2) / 450.0  

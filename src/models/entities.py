@@ -1,60 +1,61 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Numeric, DateTime, ForeignKey, Boolean, JSON
+from typing import Optional, Any
+from sqlalchemy import Integer, String, Numeric, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from src.core.database import Base
 
 class League(Base):
     __tablename__ = "leagues"
 
-    league_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    code = Column(String(20), unique=True, nullable=False)  # esim. 'PL', 'PD', 'SA'
-    country = Column(String(100), nullable=False)
+    league_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # esim. 'PL', 'PD', 'SA'
+    country: Mapped[str] = mapped_column(String(100), nullable=False)
 
 
 class Match(Base):
     __tablename__ = "matches"
 
-    match_id = Column(Integer, primary_key=True, index=True)
-    league_id = Column(Integer, ForeignKey("leagues.league_id"), nullable=False)
-    season = Column(String(20), nullable=False)
-    home_team = Column(String(100), nullable=False)
-    away_team = Column(String(100), nullable=False)
-    match_datetime = Column(DateTime, nullable=False)
-    referee = Column(String(100), nullable=True)
-    status = Column(String(20), default="SCHEDULED")
-    actual_home_goals = Column(Integer, nullable=True)
-    actual_away_goals = Column(Integer, nullable=True)
+    match_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    league_id: Mapped[int] = mapped_column(Integer, ForeignKey("leagues.league_id"), nullable=False)
+    season: Mapped[str] = mapped_column(String(20), nullable=False)
+    home_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    away_team: Mapped[str] = mapped_column(String(100), nullable=False)
+    match_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    referee: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
+    actual_home_goals: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    actual_away_goals: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    league = relationship("League")
+    league: Mapped[Optional[League]] = relationship("League")
 
 
 class MatchPrediction(Base):
     __tablename__ = "match_predictions"
 
-    prediction_id = Column(Integer, primary_key=True, index=True)
-    match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
-    predicted_home_xg = Column(Numeric(4, 2), nullable=False)
-    predicted_away_xg = Column(Numeric(4, 2), nullable=False)
-    prob_home_win = Column(Numeric(5, 4), nullable=False)
-    prob_draw = Column(Numeric(5, 4), nullable=False)
-    prob_away_win = Column(Numeric(5, 4), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    prediction_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    match_id: Mapped[int] = mapped_column(Integer, ForeignKey("matches.match_id"), nullable=False)
+    predicted_home_xg: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
+    predicted_away_xg: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
+    prob_home_win: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    prob_draw: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    prob_away_win: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class PredictionEvaluation(Base):
     __tablename__ = "prediction_evaluations"
 
-    evaluation_id = Column(Integer, primary_key=True, index=True)
-    match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
-    prediction_id = Column(
+    evaluation_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    match_id: Mapped[int] = mapped_column(Integer, ForeignKey("matches.match_id"), nullable=False)
+    prediction_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("match_predictions.prediction_id"), nullable=False
     )
-    brier_score = Column(Numeric(6, 4), nullable=False)
-    log_loss = Column(Numeric(6, 4), nullable=False)
-    outcome_correct = Column(Boolean, nullable=False)
-    evaluated_at = Column(DateTime, default=datetime.utcnow)
+    brier_score: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
+    log_loss: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
+    outcome_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # --- PAPER TRADING / BANKROLL MODELS ---
@@ -63,42 +64,44 @@ class PredictionEvaluation(Base):
 class Bankroll(Base):
     __tablename__ = "bankrolls"
 
-    id = Column(Integer, primary_key=True, index=True)
-    initial_balance = Column(Numeric(10, 2), default=1000.00)
-    current_balance = Column(Numeric(10, 2), default=1000.00)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    initial_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
+    current_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PaperBet(Base):
     __tablename__ = "paper_bets"
 
-    bet_id = Column(Integer, primary_key=True, index=True)
-    match_id = Column(Integer, ForeignKey("matches.match_id"), nullable=False)
-    league_code = Column(String(20), default="PL")
-    match_name = Column(String(150), nullable=False)
-    market_type = Column(String(30), default="1X2")  # '1X2' tai 'CARDS_OVER_3_5'
-    outcome = Column(String(20), nullable=False)      # 'H', 'D', 'A', 'OVER_3_5'
-    odds = Column(Numeric(6, 2), nullable=False)
-    ev_percentage = Column(Numeric(6, 2), nullable=False)
-    stake_amount = Column(Numeric(10, 2), nullable=False)
-    stake_percentage = Column(Numeric(5, 2), nullable=False)
-    status = Column(String(20), default="PENDING")    # 'PENDING', 'WON', 'LOST', 'VOID'
-    pnl = Column(Numeric(10, 2), default=0.00)
-    placed_at = Column(DateTime, default=datetime.utcnow)
-    settled_at = Column(DateTime, nullable=True)
+    bet_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    match_id: Mapped[int] = mapped_column(Integer, ForeignKey("matches.match_id"), nullable=False)
+    league_code: Mapped[str] = mapped_column(String(20), default="PL")
+    match_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    market_type: Mapped[str] = mapped_column(String(30), default="1X2")  # '1X2' tai 'CARDS_OVER_3_5'
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)      # 'H', 'D', 'A', 'OVER_3_5'
+    odds: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    ev_percentage: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    stake_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    stake_percentage: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")    # 'PENDING', 'WON', 'LOST', 'VOID'
+    pnl: Mapped[float] = mapped_column(Numeric(10, 2), default=0.00)
+    placed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    role = Column(String, default="user", nullable=False) 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    role: Mapped[str] = mapped_column(String, default="user", nullable=False) 
+
 
 class OddsCache(Base):
     __tablename__ = "odds_cache"
     
-    id = Column(Integer, primary_key=True, index=True)
-    sport_key = Column(String, unique=True, index=True)
-    data = Column(JSON) # Tähän tallennetaan API:n palauttamat kertoimet
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    sport_key: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True)
+    data: Mapped[Optional[Any]] = mapped_column(JSON) # Tähän tallennetaan API:n palauttamat kertoimet
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), default=func.now())

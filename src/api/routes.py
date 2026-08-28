@@ -103,8 +103,8 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
             token = token.split(" ")[1]
             
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        username = payload.get("sub")
+        if not username or not isinstance(username, str):
             raise HTTPException(status_code=status.HTTP_303_SEE_OTHER, headers={"Location": "/login"})
             
     except JWTError:
@@ -140,7 +140,7 @@ def refresh_odds(
                 cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
                 if cache_entry:
                     cache_entry.data = data_to_save
-                    cache_entry.updated_at = func.now()
+                    cache_entry.updated_at = datetime.now(timezone.utc)
                 else:
                     new_cache = OddsCache(sport_key=sport_key, data=data_to_save)
                     db.add(new_cache)
@@ -175,7 +175,7 @@ def get_upcoming_predictions(
         sport_key = LEAGUES_CONFIG.get(l_code, {}).get("odds_key", "soccer_epl")
 
         cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
-        events_list = cache_entry.data if cache_entry and cache_entry.data else []
+        events_list = cache_entry.data if cache_entry and isinstance(cache_entry.data, list) else []
         
         match_odds = odds_fetcher.get_odds_for_match(
             m.home_team, m.away_team, events_list, sport_key
@@ -293,6 +293,7 @@ def render_bankroll(
 
 @app.post("/api/v1/bets/cards")
 def place_card_bet(
+    request: Request,
     match_id: int = Form(...),
     match_name: str = Form(...),
     league_code: str = Form("PL"),
@@ -324,7 +325,8 @@ def place_card_bet(
                 league_code=league_code,
                 market_type=market_type
             )
-    return RedirectResponse(url="/bankroll", status_code=303)
+    referer = request.headers.get("referer", "/")
+    return RedirectResponse(url=referer, status_code=303)
 
 @app.post("/api/v1/bets/{bet_id}/resolve")
 def resolve_bet(

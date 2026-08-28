@@ -1,5 +1,5 @@
-# src/services/bankroll_service.py
 from datetime import datetime
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from src.core.config import LEAGUES_CONFIG
@@ -76,7 +76,7 @@ class BankrollService:
         return True
 
     @staticmethod
-    def settle_bets_for_match(db: Session, match_id: int, actual_home: int, actual_away: int, actual_cards: int = None):
+    def settle_bets_for_match(db: Session, match_id: int, actual_home: int, actual_away: int, actual_cards: Optional[int] = None):
         pending_bets = db.query(PaperBet).filter(
             PaperBet.match_id == match_id,
             PaperBet.status == "PENDING"

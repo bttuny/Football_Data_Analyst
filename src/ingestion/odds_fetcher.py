@@ -306,9 +306,9 @@ class OddsFetcher:
 
     def fetch_current_odds(
         self, sport_key: str = "soccer_epl"
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> list:
         if not self.api_key:
-            return {}
+            return []
 
         url = f"{self.base_url}/{sport_key}/odds"
         params = {
@@ -321,7 +321,7 @@ class OddsFetcher:
         try:
             res = requests.get(url, params=params, timeout=10)
             if res.status_code != 200:
-                return {}
+                return []
 
             data = res.json()
             events_list = []

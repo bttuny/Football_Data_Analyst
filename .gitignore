@@ -12,5 +12,5 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .idea/
-
-reset_matches.py
+data
+pyrightconfig.json

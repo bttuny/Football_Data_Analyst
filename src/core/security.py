@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # Salaisuus, jolla tokenit allekirjoitetaan (oikeassa tuotannossa tämä haetaan .env -tiedostosta)
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
+_secret = os.getenv("SECRET_KEY")
+if not _secret:
     raise ValueError("ERROR: Missing SECRET_KEY from .env file.")
+SECRET_KEY: str = _secret
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 

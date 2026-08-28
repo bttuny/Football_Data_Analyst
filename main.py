@@ -90,9 +90,9 @@ def run_pipeline():
                             (cards_df["HomeClean"] == clean_name(match.home_team)) &
                             (cards_df["AwayClean"] == clean_name(match.away_team))
                         ].copy()
-                        if not c_match.empty:
+                        if isinstance(c_match, pd.DataFrame) and not c_match.empty:
                             c_match["parsed_date"] = pd.to_datetime(c_match["Date"], dayfirst=True, errors="coerce")
-                            c_match = c_match.sort_values("parsed_date")
+                            c_match = c_match.sort_values(by="parsed_date")
                             last_match = c_match.iloc[-1]
                             
                             # Varmistetaan, ettei oteta viime kauden tulosta (max 4 päivän heitto ottelupäivästä)
