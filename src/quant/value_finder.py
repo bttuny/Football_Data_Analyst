@@ -8,10 +8,12 @@ def calculate_value_bets(
     odds_draw: float,
     odds_away: float,
 ) -> List[Dict[str, Any]]:
+    # SQLAlchemy Numeric -sarakkeet palauttavat decimal.Decimal-olioita,
+    # jotka eivät toimi suoraan float-laskuissa -> muunnetaan varmuuden vuoksi
     outcomes = [
-        ("H", prob_home, odds_home, "Kotivoitto"),
-        ("D", prob_draw, odds_draw, "Tasapeli"),
-        ("A", prob_away, odds_away, "Vierasvoitto"),
+        ("H", float(prob_home), float(odds_home), "Kotivoitto"),
+        ("D", float(prob_draw), float(odds_draw), "Tasapeli"),
+        ("A", float(prob_away), float(odds_away), "Vierasvoitto"),
     ]
     results = []
 

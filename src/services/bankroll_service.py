@@ -53,7 +53,7 @@ class BankrollService:
 
         bankroll = BankrollService.get_or_create_bankroll(db)
         stake_eur = round(
-            bankroll.current_balance * (stake_pct / 100.0), 2
+            float(bankroll.current_balance) * (stake_pct / 100.0), 2
         )
         if stake_eur < 1.0:
             return False
@@ -107,14 +107,14 @@ class BankrollService:
             # Ratkaistaan vain ne vedot, joista on varma tieto (True tai False)
             if won is True:
                 bet.status = "WON"
-                bet.pnl = round(bet.stake_amount * (bet.odds - 1.0), 2)
+                bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
                 bet.settled_at = datetime.now(timezone.utc)
-                bankroll.current_balance = bankroll.current_balance + bet.pnl
+                bankroll.current_balance = float(bankroll.current_balance) + float(bet.pnl)
             elif won is False:
                 bet.status = "LOST"
-                bet.pnl = -bet.stake_amount
+                bet.pnl = -float(bet.stake_amount)
                 bet.settled_at = datetime.now(timezone.utc)
-                bankroll.current_balance = bankroll.current_balance + bet.pnl
+                bankroll.current_balance = float(bankroll.current_balance) + float(bet.pnl)
 
         db.commit()
 
@@ -218,8 +218,8 @@ class BankrollService:
             }
 
         return {
-            "current_balance": round(bankroll.current_balance, 2),
-            "initial_balance": round(bankroll.initial_balance, 2),
+            "current_balance": round(float(bankroll.current_balance), 2),
+            "initial_balance": round(float(bankroll.initial_balance), 2),
             "total_pnl": round(total_pnl, 2),
             "total_roi_pct": (
                 round(total_pnl / total_staked * 100, 1)

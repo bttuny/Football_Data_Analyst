@@ -58,11 +58,11 @@ def get_cards_model(code: str, db: Optional[Session] = None) -> PremierLeagueCar
             new_model.team_card_factors = cache.team_card_factors
             new_model.referee_factors = cache.referee_factors or {}
             league_cards_models[code] = new_model
-            print(f"⚡ Korttimalli {code} ladattu tietokannasta!")
+            print(f"[DB] Korttimalli {code} ladattu tietokannasta!")
             return new_model
 
-    # 3. Fallback: ladataan CSV netistä (hidas, vain jos DB tyhjä)
-    print(f"🌐 Korttimallia {code} ei löytynyt muistista/DB:stä. Ladataan lennosta...")
+    # 3. Fallback: ladataan CSV netista (hidas, vain jos DB tyhja)
+    print(f"[CSV] Korttimallia {code} ei loytynyt muistista/DB:sta. Ladataan lennosta...")
     new_model = PremierLeagueCardsModel()
     
     fetcher = CardsDataFetcher()
@@ -74,11 +74,11 @@ def get_cards_model(code: str, db: Optional[Session] = None) -> PremierLeagueCar
         
         if not df.empty:
             new_model.fit(df)
-            print(f"✅ Korttimalli opetettu lennosta liigalle {code} ({len(df)} ottelua).")
+            print(f"[OK] Korttimalli opetettu lennosta liigalle {code} ({len(df)} ottelua).")
         else:
-            print(f"⚠️ Korttidataa ei saatu ladattua liigalle {code}.")
+            print(f"[WARN] Korttidataa ei saatu ladattua liigalle {code}.")
     except Exception as e:
-        print(f"⚠️ Virhe korttimallin latauksessa/opetuksessa ({code}): {e}")
+        print(f"[WARN] Virhe korttimallin latauksessa/opetuksessa ({code}): {e}")
             
     league_cards_models[code] = new_model
     return new_model
@@ -250,8 +250,8 @@ def get_upcoming_predictions(
                 "home_team": m.home_team,
                 "away_team": m.away_team,
                 "expected_goals": {
-                    "home": latest_pred.predicted_home_xg,
-                    "away": latest_pred.predicted_away_xg,
+                    "home": float(latest_pred.predicted_home_xg),
+                    "away": float(latest_pred.predicted_away_xg),
                 },
                 "value_analysis": value_analysis,
                 "cards_analysis": card_pred,
@@ -354,10 +354,10 @@ def resolve_bet(
 
     if status == "WON":
         bet.status = "WON"
-        bet.pnl = bet.stake_amount * (bet.odds - 1.0)
+        bet.pnl = float(bet.stake_amount) * (float(bet.odds) - 1.0)
     elif status == "LOST":
         bet.status = "LOST"
-        bet.pnl = -bet.stake_amount
+        bet.pnl = -float(bet.stake_amount)
 
     db.commit()
     
