@@ -10,7 +10,7 @@ def clean_name(text: Optional[str]) -> str:
     if not text or pd.isna(text):
         return ""
     
-    orig = unicodedata.normalize("NFKD", str(text))
+    orig = unicodedata.normalize("NFKD", text)
     orig = "".join(c for c in orig if not unicodedata.combining(c)).lower().strip()
     
     orig = orig.replace("ath madrid", "atletico madrid")
@@ -115,7 +115,7 @@ class PremierLeagueCardsModel:
             h_c = float(home_cards.get(t, self.league_avg_cards / 2.0) or (self.league_avg_cards / 2.0))
             a_c = float(away_cards.get(t, self.league_avg_cards / 2.0) or (self.league_avg_cards / 2.0))
             team_avg = h_c + a_c
-            self.team_card_factors[t] = float(team_avg / self.league_avg_cards)
+            self.team_card_factors[t] = team_avg / self.league_avg_cards
 
     def predict_cards(
         self, home_team: str, away_team: str, referee: Optional[str] = None
@@ -157,7 +157,7 @@ class PremierLeagueCardsModel:
             lines[key] = {
                 "line": line,
                 "prob": round(prob_over, 3),
-                "prob_pct": int(round(prob_over * 100)),
+                "prob_pct": round(prob_over * 100),
                 "fair_odds": fair_odds,
             }
 

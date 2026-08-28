@@ -14,7 +14,7 @@ from jose import jwt, JWTError
 
 from src.core.config import LEAGUES_CONFIG
 from src.core.database import get_db, Base, engine
-from src.models.entities import Match, MatchPrediction, League, User, PaperBet, OddsCache
+from src.models.entities import Match, MatchPrediction, League, User, PaperBet, OddsCache, CardsModelCache
 from src.ingestion.odds_fetcher import OddsFetcher
 from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.value_finder import calculate_value_bets
@@ -42,25 +42,34 @@ def get_last_odds_update_time(db: Session):
     return dt_helsinki.strftime("%d.%m. klo %H:%M")
 
 
-def get_cards_model(code: str) -> PremierLeagueCardsModel:
-    """Hakee mallin muistista, tai lataa sen lennosta NETISTÄ, jos se puuttuu."""
+def get_cards_model(code: str, db: Optional[Session] = None) -> PremierLeagueCardsModel:
+    """Hakee mallin: 1) RAM-muistista, 2) tietokannasta, 3) CSV lennosta (hidas fallback)."""
+    # 1. RAM-välimuisti (saman prosessin sisällä instant)
     model = league_cards_models.get(code)
-    
     if model and len(model.team_card_factors) > 0:
         return model
-        
-    print(f"🌐 Korttimallia {code} ei löytynyt muistista. Ladataan ja opetetaan lennosta...")
+
+    # 2. Tietokannasta (nopea, ~50ms — toimii Render cold start -tilanteissa!)
+    if db:
+        cache = db.query(CardsModelCache).filter(CardsModelCache.league_code == code).first()
+        if cache and cache.team_card_factors:
+            new_model = PremierLeagueCardsModel()
+            new_model.league_avg_cards = float(cache.league_avg_cards)
+            new_model.team_card_factors = cache.team_card_factors
+            new_model.referee_factors = cache.referee_factors or {}
+            league_cards_models[code] = new_model
+            print(f"⚡ Korttimalli {code} ladattu tietokannasta!")
+            return new_model
+
+    # 3. Fallback: ladataan CSV netistä (hidas, vain jos DB tyhjä)
+    print(f"🌐 Korttimallia {code} ei löytynyt muistista/DB:stä. Ladataan lennosta...")
     new_model = PremierLeagueCardsModel()
     
-    # Käytetään valmista fetcheriä hakemaan CSV-data suoraan netistä RAM-muistiin!
     fetcher = CardsDataFetcher()
-    
-    # Haetaan configista oikea CSV-koodi käyttäen avainta 'csv_code'
     league_cfg = LEAGUES_CONFIG.get(code, {})
-    csv_code = league_cfg.get("csv_code", "E0") # Oletuksena E0 jos ei löydy
+    csv_code = league_cfg.get("csv_code", "E0")
     
     try:
-        # Ladataan dataframe lennosta netistä (EI levyltä!)
         df = fetcher.fetch_cards_history(league_csv=csv_code)
         
         if not df.empty:
@@ -71,16 +80,15 @@ def get_cards_model(code: str) -> PremierLeagueCardsModel:
     except Exception as e:
         print(f"⚠️ Virhe korttimallin latauksessa/opetuksessa ({code}): {e}")
             
-    # Tallennetaan malli välimuistiin (RAM), jotta sitä ei ladata turhaan uudelleen
     league_cards_models[code] = new_model
     return new_model
 
 
-def get_league_referees():
+def get_league_referees(db: Optional[Session] = None):
     """Hakee dynaamisesti ladatuista malleista kaikkien liigojen tuomarit."""
     ref_map = {}
     for code in LEAGUES_CONFIG.keys():
-        model = get_cards_model(code)
+        model = get_cards_model(code, db=db)
         ref_list = []
         for name, factor in model.referee_factors.items():
             if len(name) > 2:
@@ -189,9 +197,9 @@ def get_upcoming_predictions(
         )
 
         if latest_pred:
-            prob_h = float(latest_pred.prob_home_win)
-            prob_d = float(latest_pred.prob_draw)
-            prob_a = float(latest_pred.prob_away_win)
+            prob_h = latest_pred.prob_home_win
+            prob_d = latest_pred.prob_draw
+            prob_a = latest_pred.prob_away_win
 
             value_analysis = calculate_value_bets(
                 prob_h, prob_d, prob_a,
@@ -217,7 +225,7 @@ def get_upcoming_predictions(
                         market_type="1X2"
                     )
 
-            c_model = get_cards_model(l_code)
+            c_model = get_cards_model(l_code, db=db)
             card_pred = c_model.predict_cards(m.home_team, m.away_team, referee=m.referee)
             
             h_clean = clean_name(m.home_team)
@@ -242,8 +250,8 @@ def get_upcoming_predictions(
                 "home_team": m.home_team,
                 "away_team": m.away_team,
                 "expected_goals": {
-                    "home": float(latest_pred.predicted_home_xg),
-                    "away": float(latest_pred.predicted_away_xg),
+                    "home": latest_pred.predicted_home_xg,
+                    "away": latest_pred.predicted_away_xg,
                 },
                 "value_analysis": value_analysis,
                 "cards_analysis": card_pred,
@@ -259,7 +267,7 @@ def render_dashboard(
     current_user: User = Depends(get_current_user)
 ):
     predictions = get_upcoming_predictions(league=league, db=db)
-    referees_by_league = get_league_referees()
+    referees_by_league = get_league_referees(db=db)
     last_updated = get_last_odds_update_time(db)
 
     return templates.TemplateResponse(
@@ -346,10 +354,10 @@ def resolve_bet(
 
     if status == "WON":
         bet.status = "WON"
-        bet.pnl = float(bet.stake_amount) * (float(bet.odds) - 1.0)
+        bet.pnl = bet.stake_amount * (bet.odds - 1.0)
     elif status == "LOST":
         bet.status = "LOST"
-        bet.pnl = -float(bet.stake_amount)
+        bet.pnl = -bet.stake_amount
 
     db.commit()
     

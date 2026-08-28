@@ -10,7 +10,7 @@ def clean_team_name(text: str) -> str:
         return ""
     
     # 1. Poistetaan erikoismerkit ja aksentit (esim. Atlético -> Atletico, Coruña -> Coruna)
-    orig = unicodedata.normalize("NFKD", str(text))
+    orig = unicodedata.normalize("NFKD", text)
     orig = "".join(c for c in orig if not unicodedata.combining(c)).lower().strip()
     
     # 2. Hardkoodatut korjaukset (Yhdistää API-nimet historiadatan nimiin)
@@ -236,9 +236,9 @@ class PremierLeaguePoissonModel:
         prob_away = np.sum(np.triu(prob_matrix, 1))
         
         return {
-            "expected_goals_home": float(round(lambda_home, 2)),
-            "expected_goals_away": float(round(lambda_away, 2)),
-            "prob_home_win": float(round(prob_home, 4)),
-            "prob_draw": float(round(prob_draw, 4)),
-            "prob_away_win": float(round(prob_away, 4)),
+            "expected_goals_home": round(float(lambda_home), 2),
+            "expected_goals_away": round(float(lambda_away), 2),
+            "prob_home_win": round(float(prob_home), 4),
+            "prob_draw": round(float(prob_draw), 4),
+            "prob_away_win": round(float(prob_away), 4),
         }

@@ -1,6 +1,6 @@
 # main.py
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
@@ -11,13 +11,14 @@ from src.models.entities import (
     Match,
     MatchPrediction,
     PredictionEvaluation,
+    CardsModelCache,
 )
 from src.ingestion.football_data import FootballDataFetcher
 from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.poisson_dixon import PremierLeaguePoissonModel
 from src.quant.metrics import calculate_brier_score, calculate_log_loss
+from src.quant.cards_model import PremierLeagueCardsModel, clean_name
 from src.services.bankroll_service import BankrollService
-from src.quant.cards_model import clean_name  # Lisätty korttien täsmäykseen
 
 
 def run_pipeline():
@@ -43,6 +44,27 @@ def run_pipeline():
             )
             cards_df.to_csv(f"data/{code}_cards.csv", index=False)
             print(f"✅ Korttidata ({len(cards_df)} ottelua) tallennettu cacheen.")
+
+            # Opetetaan korttimalli ja tallennetaan parametrit tietokantaan
+            cards_model = PremierLeagueCardsModel()
+            cards_model.fit(cards_df)
+
+            cache = db.query(CardsModelCache).filter(CardsModelCache.league_code == code).first()
+            if cache:
+                cache.league_avg_cards = cards_model.league_avg_cards
+                cache.team_card_factors = cards_model.team_card_factors
+                cache.referee_factors = {k: float(v) for k, v in cards_model.referee_factors.items()}
+                cache.updated_at = datetime.now(timezone.utc)
+            else:
+                cache = CardsModelCache(
+                    league_code=code,
+                    league_avg_cards=cards_model.league_avg_cards,
+                    team_card_factors=cards_model.team_card_factors,
+                    referee_factors={k: float(v) for k, v in cards_model.referee_factors.items()},
+                )
+                db.add(cache)
+            db.commit()
+            print(f"💾 Korttimalli {code} tallennettu tietokantaan.")
 
         # 2. Varmistetaan liiga
         league_obj = db.query(League).filter(League.code == code).first()
@@ -120,11 +142,11 @@ def run_pipeline():
                             existing_eval = db.query(PredictionEvaluation).filter(PredictionEvaluation.match_id == match.match_id).first()
                             if not existing_eval:
                                 brier = calculate_brier_score(
-                                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                                    pred.prob_home_win, pred.prob_draw, pred.prob_away_win,
                                     act_h, act_a,
                                 )
                                 loss = calculate_log_loss(
-                                    float(pred.prob_home_win), float(pred.prob_draw), float(pred.prob_away_win),
+                                    pred.prob_home_win, pred.prob_draw, pred.prob_away_win,
                                     act_h, act_a,
                                 )
                                 pred_out = (
