@@ -52,6 +52,7 @@ def run_pipeline():
             cache = db.query(CardsModelCache).filter(CardsModelCache.league_code == code).first()
             if cache:
                 cache.league_avg_cards = cards_model.league_avg_cards
+                cache.dispersion_alpha = cards_model.dispersion_alpha
                 cache.team_card_factors = cards_model.team_card_factors
                 cache.referee_factors = {k: float(v) for k, v in cards_model.referee_factors.items()}
                 cache.updated_at = datetime.now(timezone.utc)
@@ -59,6 +60,7 @@ def run_pipeline():
                 cache = CardsModelCache(
                     league_code=code,
                     league_avg_cards=cards_model.league_avg_cards,
+                    dispersion_alpha=cards_model.dispersion_alpha,
                     team_card_factors=cards_model.team_card_factors,
                     referee_factors={k: float(v) for k, v in cards_model.referee_factors.items()},
                 )

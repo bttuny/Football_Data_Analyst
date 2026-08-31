@@ -3,15 +3,77 @@
 {% block title %}Paper Trading Portfolio - Top 5 Liigat{% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold text-white">💼 Paper Trading Portfolio</h1>
-    <p class="text-sm text-slate-400">Kassan kehitys ja mallien suorituskyky eriytettynä Euroopan Top 5 -sarjoihin.</p>
+<div class="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div>
+        <h1 class="text-2xl font-bold text-white flex items-center gap-2">
+            <span>💼 Paper Trading Portfolio</span>
+            {% if active_portfolio == 'neg_binom' %}
+            <span class="text-xs bg-purple-950 text-purple-300 border border-purple-800 px-2 py-0.5 rounded-full font-semibold">NegBinom Salkku</span>
+            {% else %}
+            <span class="text-xs bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded-full font-semibold">Pääsalkku (Poisson & 1X2)</span>
+            {% endif %}
+        </h1>
+        <p class="text-sm text-slate-400">Kassan kehitys ja mallien suorituskyky eriytettynä Euroopan Top 5 -sarjoihin.</p>
+    </div>
+
+    <!-- Portfolio-valitsin (Vain Adminille) -->
+    {% if current_user.role == 'admin' %}
+    <div class="flex items-center gap-2 bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow">
+        <a href="/bankroll?portfolio=poisson" 
+           class="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 {% if active_portfolio == 'poisson' %}bg-sky-600 text-white shadow{% else %}text-slate-400 hover:text-white{% endif %}">
+            <span>🔵</span> Poisson & 1X2
+            <span class="text-[10px] font-mono opacity-80">({{ p_summary.current_balance }}€)</span>
+        </a>
+        <a href="/bankroll?portfolio=neg_binom" 
+           class="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 {% if active_portfolio == 'neg_binom' %}bg-purple-600 text-white shadow{% else %}text-slate-400 hover:text-white{% endif %}">
+            <span>🟣</span> NegBinom Kortit
+            <span class="text-[10px] font-mono opacity-80">({{ nb_summary.current_balance }}€)</span>
+        </a>
+    </div>
+    {% endif %}
 </div>
 
-<!-- Kassan Yleiskatsaus -->
+<!-- Salkkuvertailu (Vain Adminille) -->
+{% if current_user.role == 'admin' %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div class="border rounded-xl p-3 flex justify-between items-center {% if active_portfolio == 'poisson' %}bg-sky-950/30 border-sky-700/60 ring-1 ring-sky-500/30{% else %}bg-slate-900/60 border-slate-800{% endif %}">
+        <div class="flex items-center gap-2.5">
+            <span class="text-xl">🔵</span>
+            <div>
+                <div class="text-xs font-bold text-sky-300">Poisson-mallin salkku</div>
+                <div class="text-[11px] text-slate-400">1X2 + Poisson korttivedot ({{ p_summary.settled_bets_count + p_summary.pending_bets_count }} kpl)</div>
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-sm font-bold text-white">{{ p_summary.current_balance }} €</div>
+            <div class="text-xs font-semibold {% if p_summary.total_pnl > 0 %}text-emerald-400{% elif p_summary.total_pnl < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                {% if p_summary.total_pnl > 0 %}+{% endif %}{{ p_summary.total_pnl }} € ({{ p_summary.total_roi_pct }}%)
+            </div>
+        </div>
+    </div>
+
+    <div class="border rounded-xl p-3 flex justify-between items-center {% if active_portfolio == 'neg_binom' %}bg-purple-950/30 border-purple-700/60 ring-1 ring-purple-500/30{% else %}bg-slate-900/60 border-slate-800{% endif %}">
+        <div class="flex items-center gap-2.5">
+            <span class="text-xl">🟣</span>
+            <div>
+                <div class="text-xs font-bold text-purple-300">Negatiivisen binomin salkku</div>
+                <div class="text-[11px] text-slate-400">Overdispersoidut korttivedot ({{ nb_summary.settled_bets_count + nb_summary.pending_bets_count }} kpl)</div>
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-sm font-bold text-white">{{ nb_summary.current_balance }} €</div>
+            <div class="text-xs font-semibold {% if nb_summary.total_pnl > 0 %}text-emerald-400{% elif nb_summary.total_pnl < 0 %}text-rose-400{% else %}text-slate-400{% endif %}">
+                {% if nb_summary.total_pnl > 0 %}+{% endif %}{{ nb_summary.total_pnl }} € ({{ nb_summary.total_roi_pct }}%)
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Kassan Yleiskatsaus (Valittu Salkku) -->
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-        <div class="text-xs text-slate-400 font-medium">Kassan Kokonaissaldo</div>
+        <div class="text-xs text-slate-400 font-medium">Salkun Kokonaissaldo</div>
         <div class="text-2xl font-bold text-white mt-1">{{ summary.current_balance }} €</div>
         <div class="text-[11px] text-slate-500">Alkupääoma: {{ summary.initial_balance }} €</div>
     </div>
@@ -21,7 +83,7 @@
         <div class="text-2xl font-bold mt-1 {% if summary.total_pnl > 0 %}text-emerald-400{% elif summary.total_pnl < 0 %}text-rose-400{% else %}text-slate-300{% endif %}">
             {% if summary.total_pnl > 0 %}+{% endif %}{{ summary.total_pnl }} €
         </div>
-        <div class="text-[11px] text-slate-500">Kaikkien sarjojen nettotuotto</div>
+        <div class="text-[11px] text-slate-500">Salkun nettotuotto</div>
     </div>
 
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">

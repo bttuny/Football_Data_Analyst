@@ -54,7 +54,9 @@ def get_cards_model(code: str, db: Optional[Session] = None) -> PremierLeagueCar
         cache = db.query(CardsModelCache).filter(CardsModelCache.league_code == code).first()
         if cache and cache.team_card_factors:
             new_model = PremierLeagueCardsModel()
-            new_model.league_avg_cards = float(cache.league_avg_cards)
+            new_model.league_avg_cards = (cache.league_avg_cards)
+            if getattr(cache, "dispersion_alpha", None) is not None:
+                new_model.dispersion_alpha = (cache.dispersion_alpha or 0.08)
             new_model.team_card_factors = cache.team_card_factors
             new_model.referee_factors = cache.referee_factors or {}
             league_cards_models[code] = new_model
@@ -250,8 +252,8 @@ def get_upcoming_predictions(
                 "home_team": m.home_team,
                 "away_team": m.away_team,
                 "expected_goals": {
-                    "home": float(latest_pred.predicted_home_xg),
-                    "away": float(latest_pred.predicted_away_xg),
+                    "home": (latest_pred.predicted_home_xg),
+                    "away": (latest_pred.predicted_away_xg),
                 },
                 "value_analysis": value_analysis,
                 "cards_analysis": card_pred,
@@ -288,14 +290,25 @@ def render_dashboard(
 @app.get("/bankroll", response_class=HTMLResponse)
 def render_bankroll(
     request: Request, 
+    portfolio: str = "poisson",
     db: Session = Depends(get_db), 
     current_user: User = Depends(get_current_user)
 ):
-    summary = BankrollService.get_portfolio_summary(db)
+    summary = BankrollService.get_portfolio_summary(db, portfolio=portfolio)
+    p_summary = BankrollService.get_portfolio_summary(db, portfolio="poisson")
+    nb_summary = BankrollService.get_portfolio_summary(db, portfolio="neg_binom")
+
     return templates.TemplateResponse(
         request,
         "views/bankroll.html",
-        {"summary": summary, "active_tab": "bankroll", "current_user": current_user},
+        {
+            "summary": summary,
+            "p_summary": p_summary,
+            "nb_summary": nb_summary,
+            "active_portfolio": portfolio,
+            "active_tab": "bankroll",
+            "current_user": current_user,
+        },
     )
 
 
@@ -308,31 +321,70 @@ def place_card_bet(
     selected_line: float = Form(3.5),
     user_odds: float = Form(...),
     line_prob: float = Form(...),
+    nbinom_line_prob: Optional[float] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus asettaa korttivetoja.")
 
-    if user_odds > 1.0 and line_prob > 0:
-        ev = (line_prob * user_odds) - 1.0
-        b = user_odds - 1.0
-        kelly = ((b * line_prob) - (1.0 - line_prob)) / b if b > 0 else 0
-        stake_pct = min(2.0, round(max(0.0, kelly * 0.25) * 100, 1))
+    market_type = f"CARDS_OVER_{str(selected_line).replace('.', '_')}"
 
-        if ev > 0.02 and stake_pct >= 0.1:
-            market_type = f"CARDS_OVER_{str(selected_line).replace('.', '_')}"
+    # 1. Poisson-mallin arvovetoarviointi & panostus
+    if user_odds > 1.0 and line_prob > 0:
+        ev_p = (line_prob * user_odds) - 1.0
+        b_p = user_odds - 1.0
+        kelly_p = ((b_p * line_prob) - (1.0 - line_prob)) / b_p if b_p > 0 else 0
+        stake_pct_p = min(2.0, round(max(0.0, kelly_p * 0.25) * 100, 1))
+
+        if ev_p > 0.02 and stake_pct_p >= 0.1:
             BankrollService.place_value_bet(
                 db=db,
                 match_id=match_id,
                 match_name=match_name,
                 outcome=f"Yli {selected_line}",
                 odds=user_odds,
-                ev_pct=round(ev * 100, 1),
-                stake_pct=stake_pct,
+                ev_pct=round(ev_p * 100, 1),
+                stake_pct=stake_pct_p,
                 league_code=league_code,
-                market_type=market_type
+                market_type=market_type,
+                portfolio="poisson"
             )
+
+    # 2. Negatiivisen binomijakauman arvovetoarviointi & erillinen salkku
+    # Jos lomakkeelta ei tullut nbinom_line_prob -arvoa, lasketaan se lennosta
+    nb_prob = nbinom_line_prob
+    if nb_prob is None or nb_prob <= 0:
+        c_model = get_cards_model(league_code, db=db)
+        match_obj = db.query(Match).filter(Match.match_id == match_id).first()
+        ref = match_obj.referee if match_obj else None
+        h_t = match_name.split(" vs ")[0] if " vs " in match_name else ""
+        a_t = match_name.split(" vs ")[1] if " vs " in match_name else ""
+        c_res = c_model.predict_cards(h_t, a_t, referee=ref)
+        key = f"over_{str(selected_line).replace('.', '_')}"
+        if "nbinom_lines" in c_res and key in c_res["nbinom_lines"]:
+            nb_prob = float(c_res["nbinom_lines"][key]["prob"])
+
+    if nb_prob and user_odds > 1.0 and nb_prob > 0:
+        ev_nb = (nb_prob * user_odds) - 1.0
+        b_nb = user_odds - 1.0
+        kelly_nb = ((b_nb * nb_prob) - (1.0 - nb_prob)) / b_nb if b_nb > 0 else 0
+        stake_pct_nb = min(2.0, round(max(0.0, kelly_nb * 0.25) * 100, 1))
+
+        if ev_nb > 0.02 and stake_pct_nb >= 0.1:
+            BankrollService.place_value_bet(
+                db=db,
+                match_id=match_id,
+                match_name=match_name,
+                outcome=f"Yli {selected_line}",
+                odds=user_odds,
+                ev_pct=round(ev_nb * 100, 1),
+                stake_pct=stake_pct_nb,
+                league_code=league_code,
+                market_type=market_type,
+                portfolio="neg_binom"
+            )
+
     referer = request.headers.get("referer", "/")
     return RedirectResponse(url=referer, status_code=303)
 
@@ -346,22 +398,27 @@ def resolve_bet(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Vain admin-käyttäjällä on oikeus ratkaista vetoja.")
 
-    # TÄSSÄ ON SE KRIITTINEN MUUTOS: PaperBet.bet_id
     bet = db.query(PaperBet).filter(PaperBet.bet_id == bet_id).first()
     
     if not bet:
         raise HTTPException(status_code=404, detail="Vetoa ei löytynyt.")
 
+    port_name = bet.portfolio or "poisson"
+    bankroll = BankrollService.get_or_create_bankroll(db, portfolio=port_name)
+
     if status == "WON":
         bet.status = "WON"
-        bet.pnl = float(bet.stake_amount) * (float(bet.odds) - 1.0)
+        bet.pnl = (bet.stake_amount) * (bet.odds - 1.0)
+        bankroll.current_balance = bankroll.current_balance + bet.pnl
     elif status == "LOST":
         bet.status = "LOST"
-        bet.pnl = -float(bet.stake_amount)
+        bet.pnl = -(bet.stake_amount)
+        bankroll.current_balance = bankroll.current_balance + bet.pnl
 
+    bet.settled_at = datetime.now(timezone.utc)
     db.commit()
     
-    return RedirectResponse(url="/bankroll", status_code=303)
+    return RedirectResponse(url=f"/bankroll?portfolio={port_name}", status_code=303)
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):

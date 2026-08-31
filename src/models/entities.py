@@ -68,6 +68,7 @@ class Bankroll(Base):
     __tablename__ = "bankrolls"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    portfolio: Mapped[str] = mapped_column(String(30), default="poisson", index=True)  # 'poisson' tai 'neg_binom'
     initial_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
     current_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
@@ -77,6 +78,7 @@ class PaperBet(Base):
     __tablename__ = "paper_bets"
 
     bet_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    portfolio: Mapped[str] = mapped_column(String(30), default="poisson", index=True)  # 'poisson' tai 'neg_binom'
     match_id: Mapped[int] = mapped_column(Integer, ForeignKey("matches.match_id"), nullable=False)
     league_code: Mapped[str] = mapped_column(String(20), default="PL")
     match_name: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -116,6 +118,7 @@ class CardsModelCache(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     league_code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
     league_avg_cards: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False, default=4.4)
+    dispersion_alpha: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True, default=0.08)
     team_card_factors: Mapped[Optional[Any]] = mapped_column(JSON)   # {"arsenal": 1.12, "chelsea": 0.95, ...}
     referee_factors: Mapped[Optional[Any]] = mapped_column(JSON)     # {"michael oliver": 1.15, ...}
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())

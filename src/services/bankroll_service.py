@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from src.core.config import LEAGUES_CONFIG
@@ -15,12 +16,14 @@ class BankrollService:
 
     @staticmethod
     def get_or_create_bankroll(
-        db: Session, initial_amount: float = 1000.00
+        db: Session, portfolio: str = "poisson", initial_amount: float = 1000.00
     ) -> Bankroll:
-        bankroll = db.query(Bankroll).first()
+        bankroll = db.query(Bankroll).filter(Bankroll.portfolio == portfolio).first()
         if not bankroll:
             bankroll = Bankroll(
-                initial_balance=initial_amount, current_balance=initial_amount
+                portfolio=portfolio,
+                initial_balance=initial_amount,
+                current_balance=initial_amount
             )
             db.add(bankroll)
             db.commit()
@@ -38,6 +41,7 @@ class BankrollService:
         stake_pct: float,
         league_code: str = "PL",
         market_type: str = "1X2",
+        portfolio: str = "poisson",
     ) -> bool:
         existing = (
             db.query(PaperBet)
@@ -45,13 +49,14 @@ class BankrollService:
                 PaperBet.match_id == match_id,
                 PaperBet.market_type == market_type,
                 PaperBet.outcome == outcome,
+                PaperBet.portfolio == portfolio,
             )
             .first()
         )
         if existing:
             return False
 
-        bankroll = BankrollService.get_or_create_bankroll(db)
+        bankroll = BankrollService.get_or_create_bankroll(db, portfolio=portfolio)
         stake_eur = round(
             float(bankroll.current_balance) * (stake_pct / 100.0), 2
         )
@@ -59,6 +64,7 @@ class BankrollService:
             return False
 
         bet = PaperBet(
+            portfolio=portfolio,
             match_id=match_id,
             league_code=league_code,
             match_name=match_name,
@@ -84,8 +90,10 @@ class BankrollService:
         if not pending_bets:
             return
 
-        bankroll = BankrollService.get_or_create_bankroll(db)
         actual_1x2 = "H" if actual_home > actual_away else ("D" if actual_home == actual_away else "A")
+
+        # Cache bankrolls per portfolio during settlement
+        bankrolls_by_portfolio = {}
 
         for bet in pending_bets:
             won = None  # None tarkoittaa, ettei ratkaisua voi vielä tehdä
@@ -105,31 +113,34 @@ class BankrollService:
                     continue
 
             # Ratkaistaan vain ne vedot, joista on varma tieto (True tai False)
-            if won is True:
-                bet.status = "WON"
-                bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
-                bet.settled_at = datetime.now(timezone.utc)
-                bankroll.current_balance = float(bankroll.current_balance) + float(bet.pnl)
-            elif won is False:
-                bet.status = "LOST"
-                bet.pnl = -float(bet.stake_amount)
-                bet.settled_at = datetime.now(timezone.utc)
-                bankroll.current_balance = float(bankroll.current_balance) + float(bet.pnl)
+            if won is not None:
+                p_name = bet.portfolio or "poisson"
+                if p_name not in bankrolls_by_portfolio:
+                    bankrolls_by_portfolio[p_name] = BankrollService.get_or_create_bankroll(db, portfolio=p_name)
+                b_roll = bankrolls_by_portfolio[p_name]
+
+                if won is True:
+                    bet.status = "WON"
+                    bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
+                    bet.settled_at = datetime.now(timezone.utc)
+                    b_roll.current_balance = float(b_roll.current_balance) + float(bet.pnl)
+                elif won is False:
+                    bet.status = "LOST"
+                    bet.pnl = -float(bet.stake_amount)
+                    bet.settled_at = datetime.now(timezone.utc)
+                    b_roll.current_balance = float(b_roll.current_balance) + float(bet.pnl)
 
         db.commit()
 
     @staticmethod
-    def get_portfolio_summary(db: Session) -> dict:
-        bankroll = BankrollService.get_or_create_bankroll(db)
-        
-        from zoneinfo import ZoneInfo
-        from datetime import timezone
+    def get_portfolio_summary(db: Session, portfolio: str = "poisson") -> dict:
+        bankroll = BankrollService.get_or_create_bankroll(db, portfolio=portfolio)
         
         # 1. Avoimet vedot, yhdistettynä Match-tauluun jotta saadaan päivämäärä
         pending_results = (
             db.query(PaperBet, Match.match_datetime)
             .join(Match, Match.match_id == PaperBet.match_id)
-            .filter(PaperBet.status == "PENDING")
+            .filter(PaperBet.status == "PENDING", PaperBet.portfolio == portfolio)
             .order_by(Match.match_datetime.asc())
             .all()
         )
@@ -147,7 +158,7 @@ class BankrollService:
         settled_results = (
             db.query(PaperBet, Match.match_datetime)
             .join(Match, Match.match_id == PaperBet.match_id)
-            .filter(PaperBet.status.in_(["WON", "LOST"]))
+            .filter(PaperBet.status.in_(["WON", "LOST"]), PaperBet.portfolio == portfolio)
             .all()
         )
         
@@ -218,6 +229,7 @@ class BankrollService:
             }
 
         return {
+            "portfolio": portfolio,
             "current_balance": round(float(bankroll.current_balance), 2),
             "initial_balance": round(float(bankroll.initial_balance), 2),
             "total_pnl": round(total_pnl, 2),

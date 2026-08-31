@@ -46,15 +46,21 @@
     {% if item.cards_analysis %}
     <div class="bg-slate-950/70 border border-slate-800 rounded-lg p-3 text-xs mt-2" id="card-box-{{ item.match_id }}">
         
-        <!-- Yläpalkki: Lambda ja Tuomari -->
+        <!-- Yläpalkki: Lambda, Dispersio ja Tuomari -->
         <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">🟨 Odotus: <strong id="disp-lambda-{{ item.match_id }}" class="text-amber-300">{{ item.cards_analysis.expected_total_cards }}</strong></span>
+            <div class="flex items-center gap-1.5">
+                <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider">🟨 Odotus: <strong id="disp-lambda-{{ item.match_id }}" class="text-amber-300">{{ item.cards_analysis.expected_total_cards }}</strong></span>
+                {% if current_user.role == 'admin' and item.cards_analysis.dispersion_alpha %}
+                <span class="text-[9px] bg-purple-950/80 text-purple-300 border border-purple-800 px-1 py-0.2 rounded font-mono" title="Negatiivisen binomijakauman dispersioparametri (alpha)">α={{ item.cards_analysis.dispersion_alpha }}</span>
+                {% endif %}
+            </div>
             
             <div class="flex items-center gap-1">
                 <span class="text-[10px] text-slate-400">Tuomari:</span>
                 <select id="ref-select-{{ item.match_id }}"
                         data-match="{{ item.match_id }}"
                         data-base-lambda="{{ item.cards_analysis.base_lambda }}"
+                        data-alpha="{{ item.cards_analysis.dispersion_alpha or 0.08 }}"
                         onchange="onRefereeSelectChange(this)"
                         class="bg-slate-900 border border-slate-700 text-amber-300 rounded px-1.5 py-0.5 text-[10px] max-w-[140px] focus:outline-none focus:border-amber-400 cursor-pointer">
                     <option value="1.0" selected>Joukkueiden KA (1.00x)</option>
@@ -70,6 +76,7 @@
         <!-- 5 Linjapainiketta -->
         <div class="grid grid-cols-5 gap-1 mb-2 text-center">
             {% for key, line_data in item.cards_analysis.lines.items() %}
+            {% set nb_data = item.cards_analysis.nbinom_lines.get(key, {}) if item.cards_analysis.nbinom_lines else {} %}
             <button type="button"
                     id="btn-line-{{ item.match_id }}-{{ line_data.line }}"
                     data-match="{{ item.match_id }}"
@@ -77,34 +84,68 @@
                     data-prob="{{ line_data.prob }}"
                     data-probpct="{{ line_data.prob_pct }}"
                     data-odds="{{ line_data.fair_odds }}"
+                    data-nbprob="{{ nb_data.prob or line_data.prob }}"
+                    data-nbprobpct="{{ nb_data.prob_pct or line_data.prob_pct }}"
+                    data-nbodds="{{ nb_data.fair_odds or line_data.fair_odds }}"
                     onclick="handleLineClick(this)"
                     class="line-btn-{{ item.match_id }} py-1 px-0.5 rounded text-[10px] transition border cursor-pointer {% if line_data.line == 4.5 %}border-amber-400 bg-amber-400 text-slate-950 font-bold ring-2 ring-amber-400/40{% else %}border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700{% endif %}">
                 <div class="font-bold">> {{ line_data.line }}</div>
-                <div class="text-[9px] odds-subtext {% if line_data.line == 4.5 %}text-slate-950 font-semibold{% else %}text-slate-500{% endif %}">{{ line_data.fair_odds }}</div>
+                <div class="text-[9px] odds-subtext {% if line_data.line == 4.5 %}text-slate-950 font-semibold{% else %}text-slate-500{% endif %}">
+                    {% if current_user.role == 'admin' %}
+                    <span>P:{{ line_data.fair_odds }}</span> <span class="text-purple-300 font-bold">NB:{{ nb_data.fair_odds or '-' }}</span>
+                    {% else %}
+                    {{ line_data.fair_odds }}
+                    {% endif %}
+                </div>
             </button>
             {% endfor %}
         </div>
 
        <!-- Valinnan tiedot ja lomake -->
-        <div class="flex justify-between items-center bg-slate-900 px-2 py-1 rounded border border-slate-800 mb-2 text-[10.5px]">
-            <span class="text-slate-400">Valittu: <strong class="text-amber-300" id="label-line-{{ item.match_id }}">Yli 4.5 korttia</strong></span>
-            <span class="text-slate-400">Tn: <strong class="text-white" id="label-prob-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.prob_pct }}%</strong> (Reilu: <span class="text-amber-300 font-mono" id="label-odds-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.fair_odds }}</span>)</span>
+        <div class="bg-slate-900 px-2.5 py-1.5 rounded border border-slate-800 mb-2 text-[10.5px]">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-slate-400">Valittu linja: <strong class="text-amber-300" id="label-line-{{ item.match_id }}">Yli 4.5 korttia</strong></span>
+                {% if current_user.role == 'admin' %}
+                <span class="text-[9.5px] text-purple-400 font-medium">Dual Portfolio Auto-Kelly</span>
+                {% endif %}
+            </div>
+            
+            <div class="flex flex-wrap gap-x-3 gap-y-1 items-center text-[10px] border-t border-slate-800/60 pt-1">
+                <div>
+                    <span class="text-amber-400 font-bold">Poisson:</span> 
+                    <span class="text-white font-mono" id="label-prob-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.prob_pct }}%</span> 
+                    (Reilu: <strong class="text-amber-300 font-mono" id="label-odds-{{ item.match_id }}">{{ item.cards_analysis.lines.over_4_5.fair_odds }}</strong>)
+                </div>
+                {% if current_user.role == 'admin' %}
+                <div>
+                    <span class="text-purple-400 font-bold">NegBinom:</span> 
+                    <span class="text-white font-mono" id="label-nbprob-{{ item.match_id }}">{{ item.cards_analysis.nbinom_lines.over_4_5.prob_pct }}%</span> 
+                    (Reilu: <strong class="text-purple-300 font-mono" id="label-nbodds-{{ item.match_id }}">{{ item.cards_analysis.nbinom_lines.over_4_5.fair_odds }}</strong>)
+                </div>
+                {% endif %}
+            </div>
         </div>
 
         {% if current_user.role == 'admin' %}
-        <form action="/api/v1/bets/cards" method="POST" class="flex items-center gap-2 pt-1 border-t border-slate-800/80">
+        <form action="/api/v1/bets/cards" method="POST" class="flex flex-col gap-1.5 pt-1 border-t border-slate-800/80">
             <input type="hidden" name="match_id" value="{{ item.match_id }}">
             <input type="hidden" name="match_name" value="{{ item.home_team }} vs {{ item.away_team }}">
             <input type="hidden" name="league_code" value="{{ item.league_code }}">
             <input type="hidden" id="input-line-{{ item.match_id }}" name="selected_line" value="4.5">
             <input type="hidden" id="input-prob-{{ item.match_id }}" name="line_prob" value="{{ item.cards_analysis.lines.over_4_5.prob }}">
+            <input type="hidden" id="input-nb-prob-{{ item.match_id }}" name="nbinom_line_prob" value="{{ item.cards_analysis.nbinom_lines.over_4_5.prob if item.cards_analysis.nbinom_lines else item.cards_analysis.lines.over_4_5.prob }}">
             
-            <input type="number" step="0.01" name="user_odds" placeholder="Käytettävä kerroin..." required
-                   class="w-full bg-slate-900 border border-slate-700 text-white rounded px-2.5 py-1 text-xs focus:outline-none focus:border-amber-400">
-            
-            <button type="submit" class="bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold px-3 py-1 rounded text-xs whitespace-nowrap transition cursor-pointer">
-                + Lyö veto
-            </button>
+            <div class="flex items-center gap-2">
+                <input type="number" step="0.01" name="user_odds" placeholder="Käytettävä kerroin..." required
+                       class="w-full bg-slate-900 border border-slate-700 text-white rounded px-2.5 py-1 text-xs focus:outline-none focus:border-amber-400">
+                
+                <button type="submit" class="bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold px-3 py-1 rounded text-xs whitespace-nowrap transition cursor-pointer flex items-center gap-1">
+                    <span>+ Lyö veto</span>
+                </button>
+            </div>
+            <div class="text-[9px] text-slate-500 italic">
+                * Arvovedot tallennetaan automaattisesti sekä Poisson- että NegBinom-salkkuun kumpaisenkin mallin Kelly-panoksella.
+            </div>
         </form>
         {% else %}
         <div class="text-[10px] text-slate-500 italic text-center pt-1 border-t border-slate-800/80">
@@ -116,7 +157,7 @@
 </div>
 
 <script>
-// Poisson-kertymafunktio linjojen todennäköisyyksien laskemiseen selaimessa
+// Poisson-kertymafunktio linjojen todennakoisyyksien laskemiseen selaimessa
 function poissonCdf(k, lambda) {
     let sum = 0;
     for (let i = 0; i <= k; i++) {
@@ -127,64 +168,120 @@ function poissonCdf(k, lambda) {
     return sum;
 }
 
-// Päivittää kertoimet kun tuomari valitaan
+// Negatiivisen binomijakauman kertymafunktio (CDF) selaimessa
+function nbinomCdf(k, n, p) {
+    if (k < 0) return 0;
+    // P(X = 0) = p^n
+    let currentProb = Math.pow(p, n);
+    let sum = currentProb;
+    for (let i = 1; i <= k; i++) {
+        currentProb *= ((i + n - 1) / i) * (1 - p);
+        sum += currentProb;
+    }
+    return Math.min(1.0, sum);
+}
+
+// Paivittaa kertoimet kun tuomari valitaan
 function onRefereeSelectChange(selectElem) {
     const matchId = selectElem.dataset.match;
     const baseLambda = parseFloat(selectElem.dataset.baseLambda) || 4.4;
+    const alpha = parseFloat(selectElem.dataset.alpha) || 0.08;
     const refFactor = parseFloat(selectElem.value) || 1.0;
 
-    // Uusi odotusarvo (rajoitetaan 2.0 - 9.5 väliin realismia varten)
+    // Uusi odotusarvo (rajoitetaan 2.0 - 9.5 valiin realismia varten)
     const newLambda = Math.max(2.0, Math.min(9.5, +(baseLambda * refFactor).toFixed(2)));
     document.getElementById('disp-lambda-' + matchId).innerText = newLambda;
+
+    // Negatiivisen binomin parametrit
+    const effAlpha = Math.max(0.01, alpha);
+    const nbN = 1.0 / effAlpha;
+    const nbP = 1.0 / (1.0 + effAlpha * newLambda);
 
     const lines = [2.5, 3.5, 4.5, 5.5, 6.5];
     const currentSelectedLine = +document.getElementById('input-line-' + matchId).value;
 
     lines.forEach(line => {
         const k = Math.floor(line);
+        
+        // 1. Poisson
         const probOver = +(1.0 - poissonCdf(k, newLambda)).toFixed(3);
         const probPct = Math.round(probOver * 100);
         const fairOdds = probOver > 0.01 ? +(1.0 / probOver).toFixed(2) : 99.0;
         
+        // 2. NegBinom
+        const nbProbOver = +(1.0 - nbinomCdf(k, nbN, nbP)).toFixed(3);
+        const nbProbPct = Math.round(nbProbOver * 100);
+        const nbFairOdds = nbProbOver > 0.01 ? +(1.0 / nbProbOver).toFixed(2) : 99.0;
+
         const btn = document.getElementById('btn-line-' + matchId + '-' + line);
         if (btn) {
             btn.dataset.prob = probOver;
             btn.dataset.probpct = probPct;
             btn.dataset.odds = fairOdds;
-            btn.querySelector('.odds-subtext').innerText = fairOdds;
+            btn.dataset.nbprob = nbProbOver;
+            btn.dataset.nbprobpct = nbProbPct;
+            btn.dataset.nbodds = nbFairOdds;
+
+            const sub = btn.querySelector('.odds-subtext');
+            if (sub) {
+                if (sub.querySelector('.text-purple-300')) {
+                    sub.innerHTML = `<span>P:${fairOdds}</span> <span class="text-purple-300 font-bold">NB:${nbFairOdds}</span>`;
+                } else {
+                    sub.innerText = fairOdds;
+                }
+            }
             
             if (line === currentSelectedLine) {
                 document.getElementById('label-prob-' + matchId).innerText = probPct + '%';
                 document.getElementById('label-odds-' + matchId).innerText = fairOdds;
                 document.getElementById('input-prob-' + matchId).value = probOver;
+
+                const nbProbLabel = document.getElementById('label-nbprob-' + matchId);
+                if (nbProbLabel) nbProbLabel.innerText = nbProbPct + '%';
+                const nbOddsLabel = document.getElementById('label-nbodds-' + matchId);
+                if (nbOddsLabel) nbOddsLabel.innerText = nbFairOdds;
+                const nbInput = document.getElementById('input-nb-prob-' + matchId);
+                if (nbInput) nbInput.value = nbProbOver;
             }
         }
     });
 }
 
-// Käsittelee korttilinjan napin painalluksen
+// Kasittelee korttilinjan napin painalluksen
 function handleLineClick(btn) {
     const matchId = btn.dataset.match;
     const line = btn.dataset.line;
     const prob = btn.dataset.prob;
     const probPct = btn.dataset.probpct;
     const fairOdds = btn.dataset.odds;
+    const nbProb = btn.dataset.nbprob || prob;
+    const nbProbPct = btn.dataset.nbprobpct || probPct;
+    const nbOdds = btn.dataset.nbodds || fairOdds;
 
     // Nollaa muiden nappien tyylit
     document.querySelectorAll('.line-btn-' + matchId).forEach(b => {
         b.className = 'line-btn-' + matchId + ' py-1 px-0.5 rounded text-[10px] transition border border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 cursor-pointer';
-        b.querySelector('.odds-subtext').className = 'text-[9px] odds-subtext text-slate-500';
+        const sub = b.querySelector('.odds-subtext');
+        if (sub) sub.className = 'text-[9px] odds-subtext text-slate-500';
     });
 
     // Aktivoi valittu nappi
     btn.className = 'line-btn-' + matchId + ' py-1 px-0.5 rounded text-[10px] transition border border-amber-400 bg-amber-400 text-slate-950 font-bold ring-2 ring-amber-400/40 cursor-pointer';
-    btn.querySelector('.odds-subtext').className = 'text-[9px] odds-subtext text-slate-950 font-semibold';
+    const activeSub = btn.querySelector('.odds-subtext');
+    if (activeSub) activeSub.className = 'text-[9px] odds-subtext text-slate-950 font-semibold';
 
-    // Päivitä tekstit ja lomakkeen piilokentät
+    // Paivita tekstit ja lomakkeen piilokentat
     document.getElementById('label-line-' + matchId).innerText = 'Yli ' + line + ' korttia';
     document.getElementById('label-prob-' + matchId).innerText = probPct + '%';
     document.getElementById('label-odds-' + matchId).innerText = fairOdds;
     document.getElementById('input-line-' + matchId).value = line;
     document.getElementById('input-prob-' + matchId).value = prob;
+
+    const nbProbLabel = document.getElementById('label-nbprob-' + matchId);
+    if (nbProbLabel) nbProbLabel.innerText = nbProbPct + '%';
+    const nbOddsLabel = document.getElementById('label-nbodds-' + matchId);
+    if (nbOddsLabel) nbOddsLabel.innerText = nbOdds;
+    const nbInput = document.getElementById('input-nb-prob-' + matchId);
+    if (nbInput) nbInput.value = nbProb;
 }
 </script>

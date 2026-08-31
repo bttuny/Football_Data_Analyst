@@ -4,7 +4,7 @@ import unicodedata
 from typing import Optional
 import numpy as np
 import pandas as pd
-from scipy.stats import poisson
+from scipy.stats import poisson, nbinom
 
 def clean_name(text: Optional[str]) -> str:
     if not text or pd.isna(text):
@@ -34,6 +34,7 @@ class PremierLeagueCardsModel:
 
     def __init__(self):
         self.league_avg_cards = 4.40
+        self.dispersion_alpha = 0.08  # NegBinom dispersion: Var(Y) = mu + alpha * mu^2
         self.referee_factors = {}
         self.team_card_factors = {}
 
@@ -59,14 +60,26 @@ class PremierLeagueCardsModel:
         else:
             df["weight"] = 1.0
 
-        # 2. Liigan painotettu korttikeskiarvo
+        # 2. Liigan painotettu korttikeskiarvo ja varianssi (Negatiivisen binomijakauman dispersio alpha)
         weight_sum = df["weight"].sum()
         if weight_sum > 0:
             self.league_avg_cards = float(np.average(df["total_cards"], weights=df["weight"]))
+            # Painotettu varianssi
+            weighted_var = float(np.average((df["total_cards"] - self.league_avg_cards) ** 2, weights=df["weight"]))
         else:
             total_matches = len(df)
             if total_matches > 0:
-                self.league_avg_cards = float(df["total_cards"].sum() / total_matches)
+                self.league_avg_cards = float(np.mean(df["total_cards"].to_numpy()))
+                weighted_var = float(np.var(df["total_cards"].to_numpy()))
+            else:
+                weighted_var = self.league_avg_cards * 1.3
+
+        # Estimoidaan dispersioparametri alpha: Var = mu + alpha * mu^2 -> alpha = (Var - mu) / mu^2
+        if self.league_avg_cards > 0:
+            raw_alpha = (weighted_var - self.league_avg_cards) / (self.league_avg_cards ** 2)
+            self.dispersion_alpha = float(np.clip(raw_alpha, 0.03, 0.35))
+        else:
+            self.dispersion_alpha = 0.08
 
         df["HomeClean"] = df["HomeTeam"].apply(clean_name)
         df["AwayClean"] = df["AwayTeam"].apply(clean_name)
@@ -148,23 +161,47 @@ class PremierLeagueCardsModel:
         lambda_cards = self.league_avg_cards * teams_factor * ref_factor
         lambda_cards = max(2.0, min(9.5, lambda_cards))
 
-        lines = {}
+        # Negatiivinen binomijakauma: E[X] = mu = lambda_cards, Var[X] = mu + alpha * mu^2
+        # scipy.stats.nbinom parametrit: n = 1 / alpha, p = 1 / (1 + alpha * mu)
+        alpha = max(0.01, self.dispersion_alpha)
+        nb_n = 1.0 / alpha
+        nb_p = 1.0 / (1.0 + alpha * lambda_cards)
+
+        poisson_lines = {}
+        nbinom_lines = {}
         for line in [2.5, 3.5, 4.5, 5.5, 6.5]:
             k = int(line)
-            prob_over = 1.0 - float(poisson.cdf(k, lambda_cards))
-            fair_odds = round(1.0 / prob_over, 2) if prob_over > 0.01 else 99.0
+            
+            # 1. Poisson
+            prob_p_over = 1.0 - float(poisson.cdf(k, lambda_cards))
+            fair_p_odds = round(1.0 / prob_p_over, 2) if prob_p_over > 0.01 else 99.0
+            
+            # 2. Negatiivinen binomi
+            prob_nb_over = 1.0 - float(nbinom.cdf(k, nb_n, nb_p))
+            fair_nb_odds = round(1.0 / prob_nb_over, 2) if prob_nb_over > 0.01 else 99.0
+
             key = f"over_{str(line).replace('.', '_')}"
-            lines[key] = {
+            poisson_lines[key] = {
                 "line": line,
-                "prob": round(prob_over, 3),
-                "prob_pct": round(prob_over * 100),
-                "fair_odds": fair_odds,
+                "prob": round(prob_p_over, 3),
+                "prob_pct": round(prob_p_over * 100),
+                "fair_odds": fair_p_odds,
+            }
+            nbinom_lines[key] = {
+                "line": line,
+                "prob": round(prob_nb_over, 3),
+                "prob_pct": round(prob_nb_over * 100),
+                "fair_odds": fair_nb_odds,
             }
 
         return {
             "expected_total_cards": round(lambda_cards, 2),
             "referee": ref_display,
-            "lines": lines,
-            "prob_over_3_5": lines["over_3_5"]["prob"],
-            "fair_odds_over_3_5": lines["over_3_5"]["fair_odds"],
+            "dispersion_alpha": round(self.dispersion_alpha, 4),
+            "lines": poisson_lines,
+            "nbinom_lines": nbinom_lines,
+            "prob_over_3_5": poisson_lines["over_3_5"]["prob"],
+            "fair_odds_over_3_5": poisson_lines["over_3_5"]["fair_odds"],
+            "nbinom_prob_over_3_5": nbinom_lines["over_3_5"]["prob"],
+            "nbinom_fair_odds_over_3_5": nbinom_lines["over_3_5"]["fair_odds"],
         }
