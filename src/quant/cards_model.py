@@ -158,7 +158,7 @@ class PremierLeagueCardsModel:
             else:
                 ref_display = referee
 
-        lambda_cards = self.league_avg_cards * teams_factor * ref_factor
+        lambda_cards = float(self.league_avg_cards) * teams_factor * ref_factor
         lambda_cards = max(2.0, min(9.5, lambda_cards))
 
         # Negatiivinen binomijakauma: E[X] = mu = lambda_cards, Var[X] = mu + alpha * mu^2
