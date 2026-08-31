@@ -58,7 +58,7 @@ class BankrollService:
 
         bankroll = BankrollService.get_or_create_bankroll(db, portfolio=portfolio)
         stake_eur = round(
-            float(bankroll.current_balance) * (stake_pct / 100.0), 2
+            bankroll.current_balance * (stake_pct / 100.0), 2
         )
         if stake_eur < 1.0:
             return False
@@ -119,16 +119,16 @@ class BankrollService:
                     bankrolls_by_portfolio[p_name] = BankrollService.get_or_create_bankroll(db, portfolio=p_name)
                 b_roll = bankrolls_by_portfolio[p_name]
 
-                if won is True:
+                if won:
                     bet.status = "WON"
-                    bet.pnl = round(float(bet.stake_amount) * (float(bet.odds) - 1.0), 2)
+                    bet.pnl = round(bet.stake_amount * (bet.odds - 1.0), 2)
                     bet.settled_at = datetime.now(timezone.utc)
-                    b_roll.current_balance = float(b_roll.current_balance) + float(bet.pnl)
-                elif won is False:
+                    b_roll.current_balance += bet.pnl
+                elif not won:
                     bet.status = "LOST"
-                    bet.pnl = -float(bet.stake_amount)
+                    bet.pnl = -bet.stake_amount
                     bet.settled_at = datetime.now(timezone.utc)
-                    b_roll.current_balance = float(b_roll.current_balance) + float(bet.pnl)
+                    b_roll.current_balance += bet.pnl
 
         db.commit()
 
@@ -230,8 +230,8 @@ class BankrollService:
 
         return {
             "portfolio": portfolio,
-            "current_balance": round(float(bankroll.current_balance), 2),
-            "initial_balance": round(float(bankroll.initial_balance), 2),
+            "current_balance": round(bankroll.current_balance, 2),
+            "initial_balance": round(bankroll.initial_balance, 2),
             "total_pnl": round(total_pnl, 2),
             "total_roi_pct": (
                 round(total_pnl / total_staked * 100, 1)
