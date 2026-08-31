@@ -39,11 +39,11 @@ class MatchPrediction(Base):
 
     prediction_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     match_id: Mapped[int] = mapped_column(Integer, ForeignKey("matches.match_id"), nullable=False)
-    predicted_home_xg: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
-    predicted_away_xg: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
-    prob_home_win: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
-    prob_draw: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
-    prob_away_win: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    predicted_home_xg: Mapped[float] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=False)
+    predicted_away_xg: Mapped[float] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=False)
+    prob_home_win: Mapped[float] = mapped_column(Numeric(5, 4, asdecimal=False), nullable=False)
+    prob_draw: Mapped[float] = mapped_column(Numeric(5, 4, asdecimal=False), nullable=False)
+    prob_away_win: Mapped[float] = mapped_column(Numeric(5, 4, asdecimal=False), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -55,8 +55,8 @@ class PredictionEvaluation(Base):
     prediction_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("match_predictions.prediction_id"), nullable=False
     )
-    brier_score: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
-    log_loss: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)
+    brier_score: Mapped[float] = mapped_column(Numeric(6, 4, asdecimal=False), nullable=False)
+    log_loss: Mapped[float] = mapped_column(Numeric(6, 4, asdecimal=False), nullable=False)
     outcome_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -69,8 +69,8 @@ class Bankroll(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     portfolio: Mapped[str] = mapped_column(String(30), default="poisson", index=True)  # 'poisson' tai 'neg_binom'
-    initial_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
-    current_balance: Mapped[float] = mapped_column(Numeric(10, 2), default=1000.00)
+    initial_balance: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), default=1000.00)
+    current_balance: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), default=1000.00)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
@@ -84,12 +84,12 @@ class PaperBet(Base):
     match_name: Mapped[str] = mapped_column(String(150), nullable=False)
     market_type: Mapped[str] = mapped_column(String(30), default="1X2")  # '1X2' tai 'CARDS_OVER_3_5'
     outcome: Mapped[str] = mapped_column(String(20), nullable=False)      # 'H', 'D', 'A', 'OVER_3_5'
-    odds: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
-    ev_percentage: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
-    stake_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    stake_percentage: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    odds: Mapped[float] = mapped_column(Numeric(6, 2, asdecimal=False), nullable=False)
+    ev_percentage: Mapped[float] = mapped_column(Numeric(6, 2, asdecimal=False), nullable=False)
+    stake_amount: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), nullable=False)
+    stake_percentage: Mapped[float] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="PENDING")    # 'PENDING', 'WON', 'LOST', 'VOID'
-    pnl: Mapped[float] = mapped_column(Numeric(10, 2), default=0.00)
+    pnl: Mapped[float] = mapped_column(Numeric(10, 2, asdecimal=False), default=0.00)
     placed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     settled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -117,8 +117,8 @@ class CardsModelCache(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     league_code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
-    league_avg_cards: Mapped[float] = mapped_column(Numeric(6, 3), nullable=False, default=4.4)
-    dispersion_alpha: Mapped[Optional[float]] = mapped_column(Numeric(6, 4), nullable=True, default=0.08)
+    league_avg_cards: Mapped[float] = mapped_column(Numeric(6, 3, asdecimal=False), nullable=False, default=4.4)
+    dispersion_alpha: Mapped[Optional[float]] = mapped_column(Numeric(6, 4, asdecimal=False), nullable=True, default=0.08)
     team_card_factors: Mapped[Optional[Any]] = mapped_column(JSON)   # {"arsenal": 1.12, "chelsea": 0.95, ...}
     referee_factors: Mapped[Optional[Any]] = mapped_column(JSON)     # {"michael oliver": 1.15, ...}
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())

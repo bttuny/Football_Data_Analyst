@@ -54,9 +54,9 @@ def get_cards_model(code: str, db: Optional[Session] = None) -> PremierLeagueCar
         cache = db.query(CardsModelCache).filter(CardsModelCache.league_code == code).first()
         if cache and cache.team_card_factors:
             new_model = PremierLeagueCardsModel()
-            new_model.league_avg_cards = float(cache.league_avg_cards)
+            new_model.league_avg_cards = cache.league_avg_cards
             if getattr(cache, "dispersion_alpha", None) is not None:
-                new_model.dispersion_alpha = float(cache.dispersion_alpha or 0.08)
+                new_model.dispersion_alpha = cache.dispersion_alpha or 0.08
             new_model.team_card_factors = cache.team_card_factors
             new_model.referee_factors = cache.referee_factors or {}
             league_cards_models[code] = new_model
