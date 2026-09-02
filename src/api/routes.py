@@ -403,16 +403,21 @@ def resolve_bet(
     if not bet:
         raise HTTPException(status_code=404, detail="Vetoa ei löytynyt.")
 
+    # Estetään jo ratkaistujen vetojen uudelleenratkaisu (double-settle bugi)
+    if bet.status != "PENDING":
+        port_name = bet.portfolio or "poisson"
+        return RedirectResponse(url=f"/bankroll?portfolio={port_name}", status_code=303)
+
     port_name = bet.portfolio or "poisson"
     bankroll = BankrollService.get_or_create_bankroll(db, portfolio=port_name)
 
     if status == "WON":
         bet.status = "WON"
-        bet.pnl = (bet.stake_amount) * (bet.odds - 1.0)
+        bet.pnl = round(bet.stake_amount * (bet.odds - 1.0), 2)
         bankroll.current_balance = bankroll.current_balance + bet.pnl
     elif status == "LOST":
         bet.status = "LOST"
-        bet.pnl = -(bet.stake_amount)
+        bet.pnl = -bet.stake_amount
         bankroll.current_balance = bankroll.current_balance + bet.pnl
 
     bet.settled_at = datetime.now(timezone.utc)

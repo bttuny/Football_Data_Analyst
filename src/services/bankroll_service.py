@@ -182,6 +182,16 @@ class BankrollService:
         total_pnl = sum(float(b.pnl) for b in all_settled)
         total_won = sum(1 for b in all_settled if b.status == "WON")
 
+        # Korjataan saldo laskennallisesti vetojen PnL-summasta,
+        # jotta balance ei voi ajautua erilleen (esim. double-settle bugin jäljiltä).
+        # Panoksia ei vähennetä sijoitushetkellä, joten oikea kaava on initial + pnl.
+        correct_balance = round(bankroll.initial_balance + total_pnl, 2)
+        if round(bankroll.current_balance, 2) != correct_balance:
+            bankroll.current_balance = correct_balance
+            db.commit()
+
+
+
         # Liigakohtainen ja mallikohtainen erittely
         leagues_breakdown = {}
         for code, cfg in LEAGUES_CONFIG.items():
