@@ -87,7 +87,7 @@
     </div>
 
     <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-        <div class="text-xs text-slate-400 font-medium">Kokonais ROI (Yield)</div>
+        <div class="text-xs text-slate-400 font-medium">Kokonais ROI</div>
         <div class="text-2xl font-bold mt-1 {% if summary.total_roi_pct > 0 %}text-emerald-400{% elif summary.total_roi_pct < 0 %}text-rose-400{% else %}text-slate-300{% endif %}">
             {% if summary.total_roi_pct > 0 %}+{% endif %}{{ summary.total_roi_pct }} %
         </div>

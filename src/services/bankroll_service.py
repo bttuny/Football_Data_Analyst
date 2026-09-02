@@ -244,8 +244,8 @@ class BankrollService:
             "initial_balance": round(bankroll.initial_balance, 2),
             "total_pnl": round(total_pnl, 2),
             "total_roi_pct": (
-                round(total_pnl / total_staked * 100, 1)
-                if total_staked > 0
+                round(total_pnl / bankroll.initial_balance * 100, 1)
+                if bankroll.initial_balance > 0
                 else 0.0
             ),
             "total_win_rate": (
