@@ -465,3 +465,25 @@ def logout():
     response = RedirectResponse(url="/login", status_code=303)
     response.delete_cookie("access_token")
     return response
+
+@app.get("/analytics", response_class=HTMLResponse)
+def render_analytics(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Vain admin-käyttäjällä on oikeus nähdä analytiikka."
+        )
+
+    summary = BankrollService.get_portfolio_summary(db)
+
+    return templates.TemplateResponse(request, "views/analytics.html", {
+        "summary": summary,
+        "active_tab": "analytics",
+        "current_user": current_user    
+    },
+)
+  

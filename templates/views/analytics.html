@@ -1,0 +1,149 @@
+{% extends 'layouts/base.html' %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-white">📊 Nykyisen ja vaihtoehtoisten mallien analytiikka</h1>
+</div>
+
+
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 shadow-lg">
+    <h2 class="font-bold text-white text-base mb-4">1x2 ja korttivedot: Kassan kehitys eri skenaarioittain (€)</h2>
+    <div class="relative h-[400px] w-full">
+        <canvas id="pnlChart"></canvas>
+    </div>
+</div>
+<div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 shadow-lg">
+    <h2 class="font-bold text-white text-base mb-4">Vain 1X2-vedot: Kassan kehitys skenaarioittain (€)</h2>
+    <div class="relative h-[400px] w-full">
+        <canvas id="chart1X2"></canvas>
+    </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    Chart.defaults.color = '#64748b';
+    Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
+
+    const rawHistory = [
+        {% for bet in summary.settled_history %}
+        {
+            date: "{{ bet.match_date_str }}",
+            pnl: {{ bet.pnl | default(0) }},
+            odds: {{ bet.odds | default(0) }},
+            status: "{{ bet.status }}",
+            market_type: "{{ bet.market_type }}"
+        }{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    ].reverse();
+
+    const initialBalance = {{ summary.initial_balance | default(1000) }};
+    const labels = ['Alku'];
+
+    // --- ALUSTUKSET: KOKO SALKKU ---
+    let balAllActual = initialBalance;
+    let balAllFlat1 = initialBalance;
+    let balAllUnder2 = initialBalance;
+    let balAllOver2 = initialBalance;
+
+    const dataAllActual = [balAllActual];
+    const dataAllFlat1 = [balAllFlat1];
+    const dataAllUnder2 = [balAllUnder2];
+    const dataAllOver2 = [balAllOver2];
+
+    // --- ALUSTUKSET: VAIN 1X2 ---
+    let bal1x2Actual = initialBalance;
+    let bal1x2Flat1 = initialBalance;
+    let bal1x2Under2 = initialBalance;
+    let bal1x2Over2 = initialBalance;
+
+    const data1x2Actual = [bal1x2Actual];
+    const data1x2Flat1 = [bal1x2Flat1];
+    const data1x2Under2 = [bal1x2Under2];
+    const data1x2Over2 = [bal1x2Over2];
+
+    // KÄYDÄÄN HISTORIA LÄPI YHDESSÄ SILMUKASSA
+    rawHistory.forEach(bet => {
+        labels.push(bet.date);
+        let odds = parseFloat(bet.odds);
+        let pnl = parseFloat(bet.pnl);
+
+        // 1. LASKENTA: KOKO SALKKU
+        balAllActual += pnl;
+
+        let pnlAllFlat = 0;
+        let stakeAll = balAllFlat1 * 0.01;
+        if (bet.status === "WON") pnlAllFlat = stakeAll * (odds - 1.0);
+        else if (bet.status === "LOST") pnlAllFlat = -stakeAll;
+        balAllFlat1 += pnlAllFlat;
+
+        if (odds < 2.0) balAllUnder2 += pnl;
+        if (odds > 2.0) balAllOver2 += pnl;
+
+        dataAllActual.push(balAllActual);
+        dataAllFlat1.push(balAllFlat1);
+        dataAllUnder2.push(balAllUnder2);
+        dataAllOver2.push(balAllOver2);
+
+
+        // 2. LASKENTA: VAIN 1X2
+        if (bet.market_type === "1X2") {
+            bal1x2Actual += pnl;
+
+            let pnl1x2Flat = 0;
+            let stake1x2 = bal1x2Flat1 * 0.01;
+            if (bet.status === "WON") pnl1x2Flat = stake1x2 * (odds - 1.0);
+            else if (bet.status === "LOST") pnl1x2Flat = -stake1x2;
+            bal1x2Flat1 += pnl1x2Flat;
+
+            if (odds < 2.0) bal1x2Under2 += pnl;
+            if (odds > 2.0) bal1x2Over2 += pnl;
+        }
+        
+        // Viedään data listaan joka iteratiolla, jotta X-akseli pysyy synkronissa
+        data1x2Actual.push(bal1x2Actual);
+        data1x2Flat1.push(bal1x2Flat1);
+        data1x2Under2.push(bal1x2Under2);
+        data1x2Over2.push(bal1x2Over2);
+    });
+
+    // --- YHTEISET CHART-ASETUKSET JA PIIRTÄMINEN ---
+    const chartOptions = {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top', labels: { color: '#e2e8f0', usePointStyle: true } },
+            tooltip: { mode: 'index', intersect: false }
+        },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        scales: {
+            x: { grid: { color: '#1e293b' }, ticks: { maxTicksLimit: 12 } },
+            y: { grid: { color: '#1e293b' } }
+        }
+    };
+
+    function getDatasets(actual, flat1, under2, over2) {
+        return [
+            { label: 'Todellinen Salkku', data: actual, borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.1)', borderWidth: 3, fill: true, tension: 0.2, pointRadius: 2 },
+            { label: '1% Dynaaminen Panos', data: flat1, borderColor: '#10b981', borderDash: [5, 5], borderWidth: 2, fill: false, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 },
+            { label: 'Vain kertoimet < 2.0', data: under2, borderColor: '#f59e0b', borderDash: [2, 2], borderWidth: 2, fill: false, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 },
+            { label: 'Vain kertoimet > 2.0', data: over2, borderColor: '#ef4444', borderDash: [8, 4], borderWidth: 2, fill: false, tension: 0.2, pointRadius: 0, pointHoverRadius: 5 }
+        ];
+    }
+
+    // Ylempi kuvaaja (pnlChart)
+    new Chart(document.getElementById('pnlChart').getContext('2d'), {
+        type: 'line',
+        data: { labels: labels, datasets: getDatasets(dataAllActual, dataAllFlat1, dataAllUnder2, dataAllOver2) },
+        options: chartOptions
+    });
+
+    // Alempi kuvaaja (chart1X2)
+    new Chart(document.getElementById('chart1X2').getContext('2d'), {
+        type: 'line',
+        data: { labels: labels, datasets: getDatasets(data1x2Actual, data1x2Flat1, data1x2Under2, data1x2Over2) },
+        options: chartOptions
+    });
+});
+</script>
+{% endblock %}
