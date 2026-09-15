@@ -30,7 +30,8 @@ class Match(Base):
     status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
     actual_home_goals: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     actual_away_goals: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
+    home_xg : Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
+    away_xg : Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
     league: Mapped[Optional[League]] = relationship("League")
 
 

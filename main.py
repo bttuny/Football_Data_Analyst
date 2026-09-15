@@ -1,5 +1,4 @@
 # main.py
-import os
 from datetime import datetime, timezone
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
@@ -27,8 +26,6 @@ def run_pipeline():
     db = SessionLocal()
     fetcher = FootballDataFetcher()
     cards_fetcher = CardsDataFetcher()
-    
-    os.makedirs("data", exist_ok=True)
 
     for code, conf in LEAGUES_CONFIG.items():
         print(f"\n--- Käsitellään {conf['name']} ({code}) ---")
@@ -42,8 +39,7 @@ def run_pipeline():
                 HomeClean=cards_df["HomeTeam"].apply(clean_name),
                 AwayClean=cards_df["AwayTeam"].apply(clean_name)
             )
-            cards_df.to_csv(f"data/{code}_cards.csv", index=False)
-            print(f"✅ Korttidata ({len(cards_df)} ottelua) tallennettu cacheen.")
+            print(f"✅ Korttidata ({len(cards_df)} ottelua) ladattu.")
 
             # Opetetaan korttimalli ja tallennetaan parametrit tietokantaan
             cards_model = PremierLeagueCardsModel()
