@@ -19,6 +19,7 @@ from src.ingestion.odds_fetcher import OddsFetcher
 from src.ingestion.historical_data import CardsDataFetcher
 from src.quant.value_finder import calculate_value_bets
 from src.quant.cards_model import PremierLeagueCardsModel, clean_name
+from src.quant.xgb_value_bets import get_xgb_value_analysis
 from src.services.bankroll_service import BankrollService
 from src.core.security import SECRET_KEY, ALGORITHM, verify_password, create_access_token
 
@@ -244,6 +245,30 @@ def get_upcoming_predictions(
                 dt_helsinki = dt_utc.astimezone(ZoneInfo("Europe/Helsinki"))
                 formatted_time = dt_helsinki.strftime("%d.%m. klo %H:%M")
 
+            # --- XGBoost 1X2 -analyysi ---
+            xgb_analysis = get_xgb_value_analysis(db, m, l_code, events_list)
+
+            if xgb_analysis:
+                for b_data in xgb_analysis:
+                    outcome = b_data.get("outcome", "")
+                    ev_pct = b_data.get("ev_percentage", 0)
+                    stake_pct = b_data.get("kelly_stake_pct", 0)
+                    odds = b_data.get("odds", 0)
+
+                    if ev_pct > 0 and stake_pct >= 0.1:
+                        BankrollService.place_value_bet(
+                            db=db,
+                            match_id=m.match_id,
+                            match_name=f"{m.home_team} vs {m.away_team}",
+                            outcome=outcome,
+                            odds=odds,
+                            ev_pct=ev_pct,
+                            stake_pct=stake_pct,
+                            league_code=l_code,
+                            market_type="1X2",
+                            portfolio="xgboost"
+                        )
+
             results.append({
                 "match_id": m.match_id,
                 "league_code": l_code,
@@ -256,6 +281,7 @@ def get_upcoming_predictions(
                     "away": (latest_pred.predicted_away_xg),
                 },
                 "value_analysis": value_analysis,
+                "xgb_analysis": xgb_analysis,
                 "cards_analysis": card_pred,
             })
     return results
@@ -297,6 +323,7 @@ def render_bankroll(
     summary = BankrollService.get_portfolio_summary(db, portfolio=portfolio)
     p_summary = BankrollService.get_portfolio_summary(db, portfolio="poisson")
     nb_summary = BankrollService.get_portfolio_summary(db, portfolio="neg_binom")
+    xgb_summary = BankrollService.get_portfolio_summary(db, portfolio="xgboost")
 
     return templates.TemplateResponse(
         request,
@@ -305,6 +332,7 @@ def render_bankroll(
             "summary": summary,
             "p_summary": p_summary,
             "nb_summary": nb_summary,
+            "xgb_summary": xgb_summary,
             "active_portfolio": portfolio,
             "active_tab": "bankroll",
             "current_user": current_user,

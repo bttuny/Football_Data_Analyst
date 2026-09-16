@@ -40,6 +40,37 @@
                 {% endfor %}
             </div>
         </div>
+
+        <!-- XGBoost 1X2 Arvovedot -->
+        {% if item.xgb_analysis %}
+        <div class="mb-4">
+            <div class="text-[10px] font-bold text-orange-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <span>🤖 XGBoost 1X2</span>
+                <span class="text-[8px] bg-orange-950/80 text-orange-300 border border-orange-800 px-1.5 py-0.5 rounded-full font-semibold normal-case tracking-normal">ML-malli</span>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center">
+                {% for val in item.xgb_analysis %}
+                {% set p = val.get('prob') or 0 %}
+                <div class="bg-slate-950/80 border {% if val.is_value %}border-orange-500/40 bg-orange-950/20{% else %}border-slate-800{% endif %} rounded-lg p-2 flex flex-col justify-between">
+                    <div class="text-[11px] text-slate-400">
+                        {{ val.outcome }} ({{ (p * 100) | round | int }}%)
+                    </div>
+                    <div class="text-sm font-bold text-white my-1">
+                        {% if val.odds > 0 %}{{ val.odds }}{% else %}-{% endif %}
+                    </div>
+                    {% if val.is_value %}
+                        <div class="bg-orange-950 text-orange-400 border border-orange-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                            +{{ val.ev_percentage }}% EV
+                            <div class="text-[9px] text-orange-300 font-normal">Panos: {{ val.kelly_stake_pct }}%</div>
+                        </div>
+                    {% else %}
+                        <div class="text-[10px] text-slate-500">Ei arvoa</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Korttimarkkinat ja Tuomarivalitsin -->

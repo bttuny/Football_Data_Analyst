@@ -11,12 +11,16 @@ from src.models.entities import (
     MatchPrediction,
     PredictionEvaluation,
     CardsModelCache,
+    OddsCache,
 )
 from src.ingestion.football_data import FootballDataFetcher
 from src.ingestion.historical_data import CardsDataFetcher
+from src.ingestion.odds_fetcher import OddsFetcher
 from src.quant.poisson_dixon import PremierLeaguePoissonModel
 from src.quant.metrics import calculate_brier_score, calculate_log_loss
 from src.quant.cards_model import PremierLeagueCardsModel, clean_name
+from src.quant.value_finder import calculate_value_bets
+from src.quant.xgb_value_bets import get_xgb_value_analysis
 from src.services.bankroll_service import BankrollService
 
 
@@ -26,6 +30,7 @@ def run_pipeline():
     db = SessionLocal()
     fetcher = FootballDataFetcher()
     cards_fetcher = CardsDataFetcher()
+    odds_fetcher = OddsFetcher()
 
     for code, conf in LEAGUES_CONFIG.items():
         print(f"\n--- Käsitellään {conf['name']} ({code}) ---")
@@ -219,6 +224,110 @@ def run_pipeline():
                 db.add(new_pred)
                 match_obj.status = "LOCKED"
                 db.commit()
+
+        # 7. Kertoimet ja automaattinen arvovetojen asettaminen (Dixon-Coles & XGBoost)
+        sport_key = conf.get("odds_key", "")
+        events_list = []
+        if sport_key:
+            print(f"Haetaan kertoimet ja arvovedot liigalle {code}...")
+            try:
+                fetched_data = odds_fetcher.fetch_current_odds(sport_key=sport_key)
+                if fetched_data:
+                    events_list = fetched_data
+                    cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
+                    if cache_entry:
+                        cache_entry.data = events_list
+                        cache_entry.updated_at = datetime.now(timezone.utc)
+                    else:
+                        db.add(OddsCache(sport_key=sport_key, data=events_list))
+                    db.commit()
+            except Exception as e:
+                print(f"  ⚠️ Kertoimien haku epäonnistui ({sport_key}): {e}")
+
+            if not events_list:
+                cache_entry = db.query(OddsCache).filter(OddsCache.sport_key == sport_key).first()
+                if cache_entry and isinstance(cache_entry.data, list):
+                    events_list = cache_entry.data
+
+            upcoming_db_matches = (
+                db.query(Match)
+                .filter(
+                    Match.league_id == league_obj.league_id,
+                    Match.status.in_(["SCHEDULED", "LOCKED"]),
+                )
+                .all()
+            )
+
+            placed_dc = 0
+            placed_xgb = 0
+
+            for m in upcoming_db_matches:
+                match_odds = odds_fetcher.get_odds_for_match(
+                    m.home_team, m.away_team, events_list, sport_key
+                )
+
+                # Dixon-Coles 1X2 -arvovedot
+                latest_pred = (
+                    db.query(MatchPrediction)
+                    .filter(MatchPrediction.match_id == m.match_id)
+                    .order_by(MatchPrediction.created_at.desc())
+                    .first()
+                )
+
+                if latest_pred:
+                    dc_value = calculate_value_bets(
+                        latest_pred.prob_home_win,
+                        latest_pred.prob_draw,
+                        latest_pred.prob_away_win,
+                        match_odds.get("H", 0.0),
+                        match_odds.get("D", 0.0),
+                        match_odds.get("A", 0.0),
+                    )
+                    for b_data in dc_value:
+                        outcome = b_data.get("outcome", "")
+                        ev_pct = b_data.get("ev_percentage", 0)
+                        stake_pct = b_data.get("kelly_stake_pct", 0)
+                        odds = b_data.get("odds", 0)
+                        if ev_pct > 0 and stake_pct >= 0.1:
+                            if BankrollService.place_value_bet(
+                                db=db,
+                                match_id=m.match_id,
+                                match_name=f"{m.home_team} vs {m.away_team}",
+                                outcome=outcome,
+                                odds=odds,
+                                ev_pct=ev_pct,
+                                stake_pct=stake_pct,
+                                league_code=code,
+                                market_type="1X2",
+                                portfolio="poisson",
+                            ):
+                                placed_dc += 1
+
+                # XGBoost 1X2 -arvovedot
+                xgb_analysis = get_xgb_value_analysis(db, m, code, events_list)
+                if xgb_analysis:
+                    for b_data in xgb_analysis:
+                        outcome = b_data.get("outcome", "")
+                        ev_pct = b_data.get("ev_percentage", 0)
+                        stake_pct = b_data.get("kelly_stake_pct", 0)
+                        odds = b_data.get("odds", 0)
+                        if ev_pct > 0 and stake_pct >= 0.1:
+                            if BankrollService.place_value_bet(
+                                db=db,
+                                match_id=m.match_id,
+                                match_name=f"{m.home_team} vs {m.away_team}",
+                                outcome=outcome,
+                                odds=odds,
+                                ev_pct=ev_pct,
+                                stake_pct=stake_pct,
+                                league_code=code,
+                                market_type="1X2",
+                                portfolio="xgboost",
+                            ):
+                                placed_xgb += 1
+
+            if placed_dc > 0 or placed_xgb > 0:
+                print(f"  💰 Uusia arvovetoja asetettu liigassa {code}: Dixon-Coles ({placed_dc} kpl), XGBoost ({placed_xgb} kpl)")
 
     db.close()
     print("\n=== KAIKKI TOP 5 LIIGAT KÄSITELTY ONNISTUNEESTI ===")
