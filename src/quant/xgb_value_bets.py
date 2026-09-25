@@ -2,7 +2,7 @@ import difflib
 import os
 import pandas as pd
 import joblib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, time
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,7 @@ from src.core.config import LEAGUES_CONFIG
 from src.core.database import SessionLocal
 from src.models.entities import Match, League, OddsCache
 from src.ingestion.odds_fetcher import OddsFetcher, clean_team_name
+from src.notifications.telegram_sender import send_telegram_message
 
 _MODELS_CACHE: Dict[str, Any] = {}
 
@@ -308,6 +309,15 @@ def run_xgboost_value_finder():
     print("🚀 KÄYNNISTETÄÄN XGBOOST YLIKERROIN-MOOTTORI")
     print(f"{'='*60}")
 
+    # Alustetaan Telegram-viesti
+    telegram_viesti = "⚽ <b>PÄIVÄN YLIKERTOIMET (XGBoost)</b>\n\n"
+    loytyi_kohteita = False
+
+    # Määritetään KULUVAN PÄIVÄN alku ja loppu (UTC-ajassa, jota tietokanta käyttää)
+    tanaan = datetime.now(timezone.utc).date()
+    paivan_alku = datetime.combine(tanaan, time.min).replace(tzinfo=timezone.utc)
+    paivan_loppu = datetime.combine(tanaan, time.max).replace(tzinfo=timezone.utc)
+
     for code, conf in LEAGUES_CONFIG.items():
         league_name = conf["name"]
         odds_key = conf.get("odds_key", "")
@@ -319,15 +329,16 @@ def run_xgboost_value_finder():
             print(f"  -> Liigaa {code} ei löydy tietokannasta.")
             continue
 
-        # Haetaan tulevat ottelut
+        # Haetaan VAIN TÄMÄN PÄIVÄN tulevat ottelut
         upcoming_matches = db.query(Match).filter(
             Match.league_id == league_obj.league_id,
             Match.status != "FINISHED",
-            Match.match_datetime >= datetime.now(timezone.utc)
+            Match.match_datetime >= paivan_alku,
+            Match.match_datetime <= paivan_loppu
         ).all()
 
         if not upcoming_matches:
-            print(f"  -> Ei tulevia otteluita tietokannassa.")
+            print(f"  -> Ei tämän päivän otteluita tietokannassa.")
             continue
 
         # Haetaan kertoimet DB-cachesta (tai API fallback)
@@ -335,7 +346,6 @@ def run_xgboost_value_finder():
         events_list = cache_entry.data if cache_entry and isinstance(cache_entry.data, list) else []
         
         if not events_list:
-            # Fallback: haetaan suoraan API:sta
             events_list = odds_fetcher.fetch_current_odds(sport_key=odds_key)
         
         if not events_list:
@@ -354,10 +364,18 @@ def run_xgboost_value_finder():
             
             if has_value:
                 print(f"\n🔥 YLIKERROIN: {home} vs {away}")
+                telegram_viesti += f"🔥 <b>{home} vs {away}</b>\n"
+                
                 for v in analysis:
                     print(f"   {v['outcome']}: {v['prob']*100:.1f}% | Kerroin: {v['odds']:.2f} | EV: {v['ev_percentage']:+.1f}%")
                     if v["is_value"]:
                         print(f"   👉 PELIVALINTA: {v['outcome']} ({v['label']}) | Panos: {v['kelly_stake_pct']}%")
+                        
+                        # Lisätään varsinainen pelikohde viestiin
+                        telegram_viesti += f"👉 Valinta: <b>{v['outcome']}</b> ({v['label']}) | Kerroin: <b>{v['odds']:.2f}</b>\n"
+                        telegram_viesti += f"📊 EV: +{v['ev_percentage']}% | Suosituspanos: {v['kelly_stake_pct']}%\n"
+                        loytyi_kohteita = True
+                telegram_viesti += "\n" # Tyhjä rivi otteluiden väliin
             else:
                 print(f"  -> ❌ {home} vs {away}: Ei ylikerrointa.")
 
@@ -365,6 +383,15 @@ def run_xgboost_value_finder():
     print(f"\n{'='*60}")
     print("✅ Analyysi valmis!")
     print(f"{'='*60}\n")
+
+    # LÄHETETÄÄN TELEGRAM-VIESTI
+    if loytyi_kohteita:
+        send_telegram_message(telegram_viesti)
+        print("📱 Kohteet lähetetty Telegramiin!")
+    else:
+        ei_kohteita_msg = "🤖 XGBoost-analyysi valmis.\nTälle päivälle ei löytynyt pelattavia ylikertoimia."
+        send_telegram_message(ei_kohteita_msg)
+        print("📱 Ilmoitus (ei kohteita) lähetetty Telegramiin!")
 
 
 if __name__ == "__main__":
