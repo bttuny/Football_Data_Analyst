@@ -1,5 +1,5 @@
 # main.py
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
@@ -328,6 +328,21 @@ def run_pipeline():
 
             if placed_dc > 0 or placed_xgb > 0:
                 print(f"  💰 Uusia arvovetoja asetettu liigassa {code}: Dixon-Coles ({placed_dc} kpl), XGBoost ({placed_xgb} kpl)")
+
+    # 8. Cleanup: Merkitään vanhat SCHEDULED/LOCKED -ottelut valmiiksi
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+    stale = db.query(Match).filter(
+        Match.status.in_(["SCHEDULED", "LOCKED"]),
+        Match.match_datetime < cutoff,
+    ).all()
+
+    for m in stale:
+        m.status = "FINISHED"
+        print(f"  🧹 Auto-siivous: {m.home_team} vs {m.away_team} → FINISHED")
+
+    if stale:
+        db.commit()
+        print(f"  🧹 {len(stale)} vanhentunutta ottelua merkitty valmiiksi.")
 
     db.close()
     print("\n=== KAIKKI TOP 5 LIIGAT KÄSITELTY ONNISTUNEESTI ===")

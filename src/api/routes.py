@@ -168,9 +168,13 @@ def refresh_odds(
 def get_upcoming_predictions(
     league: Optional[str] = None, db: Session = Depends(get_db)
 ):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=3)
     query = (
         db.query(Match)
-        .filter(Match.status.in_(["SCHEDULED", "LOCKED"]))
+        .filter(
+            Match.status.in_(["SCHEDULED", "LOCKED"]),
+            Match.match_datetime >= cutoff,
+        )
         .order_by(Match.match_datetime.asc())
     )
 
