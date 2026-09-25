@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_API_KEY")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_ID")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_API_KEY")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_ID")
 
 def send_telegram_message(message: str):
     """Lähettää viestin Telegram-bottiin."""
