@@ -15,17 +15,20 @@ LEAGUE_ID_MAPPING = {
 }
 
 def objective(trial, X_train, X_test, y_train, y_test):
-    """
-    Tämä funktio testaa yhden asetusyhdistelmän ja palauttaa sen osumatarkkuuden.
-    Optuna yrittää maksimoida tämän palautusarvon.
-    """
     param = {
-        'n_estimators': trial.suggest_int('n_estimators', 100, 400),
-        'max_depth': trial.suggest_int('max_depth', 2, 6),
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),
-        'subsample': trial.suggest_float('subsample', 0.5, 1.0),
-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
-        'min_child_weight': trial.suggest_int('min_child_weight', 2, 10), # Pakottaa mallin vaatimaan näyttöjä säännöille
+        # Laajennetut perusparametrit
+        'n_estimators': trial.suggest_int('n_estimators', 50, 800), # 100-400 sijaan
+        'max_depth': trial.suggest_int('max_depth', 2, 9),          # Saa rakentaa syvempiä puita
+        'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.3, log=True),
+        'subsample': trial.suggest_float('subsample', 0.3, 1.0),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.3, 1.0),
+        'min_child_weight': trial.suggest_int('min_child_weight', 1, 15),
+        
+        # UUDET: Regularisaatio eli ylioppimisen sakkomaksut
+        'gamma': trial.suggest_float('gamma', 0.0, 5.0),           # Sakko jokaisesta uudesta haaran jaosta
+        'reg_alpha': trial.suggest_float('reg_alpha', 0.0, 5.0),   # L1-sakko (nollaa turhat säännöt)
+        'reg_lambda': trial.suggest_float('reg_lambda', 0.0, 5.0), # L2-sakko (pienentää liian itsevarmat säännöt)
+        
         'objective': 'multi:softprob',
         'random_state': 42
     }
@@ -58,6 +61,8 @@ def train_xgboost_models():
     
     print(f"Löydettiin {len(unique_leagues)} eri liigaa. Aloitetaan XGBoostin tekoälyoptimointi!\n")
 
+    yhteenveto = {}
+
     for league_id in unique_leagues:
         league_name = LEAGUE_ID_MAPPING.get(league_id, f"League_{league_id}")
         
@@ -73,11 +78,11 @@ def train_xgboost_models():
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
         
         print(f"Opetusdata: {len(X_train)} ottelua | Testidata: {len(X_test)} ottelua")
-        print("Etsitään parhaita asetuksia (50 kokeilua)... Odota muutama kymmenen sekuntia.")
+        print("Etsitään parhaita asetuksia (500 kokeilua)... Odota hetki.")
         
         # 1. Luodaan Optuna-tutkimus ja pyydetään sitä maksimoimaan tarkkuus
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, X_train, X_test, y_train, y_test), n_trials=50)
+        study.optimize(lambda trial: objective(trial, X_train, X_test, y_train, y_test), n_trials=500)
         
         best_params = study.best_params
         print(f"✅ Optimointi valmis! Paras löydetty tarkkuus: {study.best_value * 100:.1f} %")
@@ -101,5 +106,13 @@ def train_xgboost_models():
         joblib.dump(final_model, model_path)
         print(f"Tallennettu optimoitu malli: {model_path}\n")
 
+        yhteenveto[league_name] = study.best_value * 100
+
+    print(f"\n{'='*50}")
+    print("🏆 LOPULLINEN YHTEENVETO KAIKISTA LIIGOISTA 🏆")
+    print(f"{'='*50}")
+    for liiga, tarkkuus in yhteenveto.items():
+        print(f"{liiga.ljust(15)} : {tarkkuus:.1f} %")
+    print(f"{'='*50}\n")
 if __name__ == "__main__":
     train_xgboost_models()

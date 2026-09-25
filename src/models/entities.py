@@ -33,6 +33,8 @@ class Match(Base):
     home_xg : Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
     away_xg : Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
     league: Mapped[Optional[League]] = relationship("League")
+    home_elo: Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
+    away_elo: Mapped[Optional[float]] = mapped_column(Numeric(4, 2, asdecimal=False), nullable=True)
 
 
 class MatchPrediction(Base):
