@@ -15,7 +15,7 @@ if DATABASE_URL.startswith("postgres://"):
 engine = create_engine(
     DATABASE_URL, 
     echo=False,
-    connect_args={"prepared_statement_cache_size": 0} 
+    connect_args={"prepare_threshold": None}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
