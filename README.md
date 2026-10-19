@@ -36,36 +36,36 @@ Instead of relying on intuition, this system programmatically fetches live bookm
 
 ### Installation
 1. **Clone the repository:**
-   '''bash
+   ```bash
    git clone https://github.com/yourusername/football-value-betting.git
    cd football-value-betting
-   '''
+   ```
 
 2. **Install dependencies:**
-   '''bash
+   ```bash
    pip install -r requirements.txt
-   '''
+   ```
 
 3. **Environment Setup:**
    Create a `.env` file in the project root and configure your credentials:
-   '''env
+   ```env
    DATABASE_URL=postgresql+psycopg://user:password@host:6543/db
    ODDS_API_KEY=your_odds_api_key
    FOOTBALL_DATA_API_KEY=your_football_data_api_key
    TELEGRAM_BOT_TOKEN=your_telegram_bot_token
    TELEGRAM_CHAT_ID=your_telegram_chat_id
-   '''
+   ```
 
 ### Running Locally
 **1. Fetch the latest market data and refresh the database:**
-'''bash
+```bash
 python main.py
-'''
+```
 
 **2. Run the quantitative engine and trigger Telegram alerts:**
-'''bash
+```bash
 python -m src.quant.xgb_value_bets
-'''
+```
 
 ## ☁️ Cloud Deployment
 The pipeline is deployed serverlessly using GitHub Actions. The workflow (`.github/workflows/daily_pipeline.yml`) runs twice daily (morning and afternoon) to catch the latest market movements. 
@@ -78,5 +78,3 @@ No persistent server is required. GitHub Actions spins up an Ubuntu runner, inst
 - **Automated Bet Placement:** Explore broker APIs to transition from an alerting system to a fully automated trading bot.
 """
 
-with open("README.md", "w", encoding="utf-8") as f:
-    f.write(readme_text)
