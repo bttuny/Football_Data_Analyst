@@ -1,5 +1,5 @@
-backticks = "```"
-readme_text = f"""# ⚽ Quantitative Football Value Betting Engine
+
+⚽ Quantitative Football Value Betting Engine
 
 ## 📖 Overview
 An end-to-end, fully automated machine learning pipeline designed to identify mathematical edges (EV+) in Europe's top 5 football leagues. 
@@ -36,36 +36,36 @@ Instead of relying on intuition, this system programmatically fetches live bookm
 
 ### Installation
 1. **Clone the repository:**
-   {backticks}bash
+   '''bash
    git clone https://github.com/yourusername/football-value-betting.git
    cd football-value-betting
-   {backticks}
+   '''
 
 2. **Install dependencies:**
-   {backticks}bash
+   '''bash
    pip install -r requirements.txt
-   {backticks}
+   '''
 
 3. **Environment Setup:**
    Create a `.env` file in the project root and configure your credentials:
-   {backticks}env
+   '''env
    DATABASE_URL=postgresql+psycopg://user:password@host:6543/db
    ODDS_API_KEY=your_odds_api_key
    FOOTBALL_DATA_API_KEY=your_football_data_api_key
    TELEGRAM_BOT_TOKEN=your_telegram_bot_token
    TELEGRAM_CHAT_ID=your_telegram_chat_id
-   {backticks}
+   '''
 
 ### Running Locally
 **1. Fetch the latest market data and refresh the database:**
-{backticks}bash
+'''bash
 python main.py
-{backticks}
+'''
 
 **2. Run the quantitative engine and trigger Telegram alerts:**
-{backticks}bash
+'''bash
 python -m src.quant.xgb_value_bets
-{backticks}
+'''
 
 ## ☁️ Cloud Deployment
 The pipeline is deployed serverlessly using GitHub Actions. The workflow (`.github/workflows/daily_pipeline.yml`) runs twice daily (morning and afternoon) to catch the latest market movements. 
